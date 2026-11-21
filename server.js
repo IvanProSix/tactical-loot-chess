@@ -208,6 +208,7 @@ function makeUnit(g, id, type, side, x, y) {
   const u = {
     id, type, side, x, y, hp: T.hp, maxHp: T.hp, alive: true, item: null,
     moved: false, acted: false, attacked: false, slowed: false, slowNext: false, boost: 0, revealUntil: null,
+    buffs: { dmg: 0, range: 0, move: 0, steady: 0 },
   };
   g.units.push(u);
   return u;
@@ -229,9 +230,11 @@ function weightedPick(weights) {
   return weights.length - 1;
 }
 // Содержимое ящика определяется в момент открытия — по удаче команды открывшего и прогрессу матча
-function rollLoot(g, side) {
-  // пока клевер команды действует, новый клевер ей не выпадает
-  const pool = R.ITEM_KEYS.filter((k) => !(k === 'luck' && g.luckBuff[side]));
+function rollLoot(g, side, u) {
+  // пока клевер команды действует, новый клевер ей не выпадает;
+  // Ингибитор стабилизации выпадает только Снайперу, у которого его ещё нет
+  const pool = R.ITEM_KEYS.filter((k) => !(k === 'luck' && g.luckBuff[side]) &&
+    !(R.ITEMS[k].sniperOnly && (!u || u.type !== 'sniper' || (u.buffs && u.buffs.steady))));
   const type = pool[weightedPick(pool.map((k) => R.ITEMS[k].weight))];
   const tier = weightedPick(R.rarityWeights(g.luck[side], g.round));
   return { type, tier, charges: R.itemStat(type, tier, 'charges') || 1 };
@@ -281,10 +284,10 @@ function ev(g, type, data = {}, vis = 'all') {
 const label = (u) => `${SIDE_ADJ[u.side]} ${R.UNIT_TYPES[u.type].name}`;
 
 // ---------------------------------------------------------------- Механики
-function damage(g, t, amount) {
+function damage(g, t, amount, opts) {
   if (!t.alive || amount <= 0) return 0;
-  // аура Щитоносца: −1 урона союзникам вокруг (но не меньше 1)
-  if (amount > 1 && g.units.some((o) => o.alive && o !== t && o.side === t.side && R.UNIT_TYPES[o.type].aura && R.cheb(o, t) <= 1)) {
+  // аура Щитоносца: −1 урона союзникам вокруг (но не меньше 1); удар в спину её игнорирует
+  if (amount > 1 && !(opts && opts.pierce) && g.units.some((o) => o.alive && o !== t && o.side === t.side && R.UNIT_TYPES[o.type].aura && R.cheb(o, t) <= 1)) {
     amount -= 1;
     ev(g, 'aura', { unitId: t.id });
   }
@@ -316,7 +319,7 @@ const RARITY_ICON = ['', '◆ ', '◆◆ ', '★ ', '✦ '];
 
 function pickup(g, u, crate) {
   g.crates = g.crates.filter((c) => c !== crate);
-  const loot = rollLoot(g, u.side);
+  const loot = rollLoot(g, u.side, u);
   giveLoot(g, u, loot, crate.x, crate.y);
   // Двойной дроп: рядом выпадает ещё один ящик
   if (Math.random() < R.doubleDropChance(g.luck[u.side], g.round)) {
@@ -342,6 +345,23 @@ function giveLoot(g, u, it, x, y) {
     u.slowed = false; u.slowNext = false;
     ev(g, 'heal', { unitId: u.id, amount: u.hp - before, hp: u.hp, maxHp: u.maxHp });
     addLog(g, `✚ ${tag}${label(u)}: ${full} — +${u.hp - before} HP${addMax ? `, макс. HP +${addMax}` : ''}`, 'heal', 'all', it.tier);
+  } else if (R.ITEMS[it.type].inhibitor) {
+    const kind = R.ITEMS[it.type].inhibitor;
+    const amount = R.itemStat(it.type, it.tier, 'amount');
+    u.buffs = u.buffs || { dmg: 0, range: 0, move: 0, steady: 0 };
+    let text;
+    if (kind === 'steady') {
+      u.buffs.steady = 1;
+      u.buffs.range = Math.min(R.BUFF_CAP.range, u.buffs.range + amount);
+      text = `может двигаться и стрелять в один ход${amount ? `, +${amount} к дальности` : ''}`;
+    } else {
+      const before = u.buffs[kind];
+      u.buffs[kind] = Math.min(R.BUFF_CAP[kind], before + amount);
+      const got = u.buffs[kind] - before;
+      text = got > 0 ? `+${got} ${{ dmg: 'к урону', range: 'к дальности', move: 'к движению' }[kind]}` : 'уже на максимуме усиления';
+    }
+    ev(g, 'buff', { unitId: u.id, kind, buffs: Object.assign({}, u.buffs) });
+    addLog(g, `💉 ${tag}${label(u)}: ${full} — ${text}`, 'loot', 'all', it.tier);
   } else if (it.type === 'luck') {
     const add = R.itemStat('luck', it.tier, 'luck');
     const turns = R.itemStat('luck', it.tier, 'turns');
@@ -459,6 +479,10 @@ function actAttack(g, side, a) {
     const splash = g.units.filter((o) => o.alive && o !== t && o.side !== u.side && R.cheb(o, { x: tx, y: ty }) === 1);
     damage(g, t, info.dmg);
     for (const o of splash) damage(g, o, 1);
+  } else if (info.backstab) {
+    ev(g, 'backstab', { unitId: t.id, by: u.id });
+    addLog(g, `🗡 УДАР В СПИНУ! ${label(u)} атакует ${label(t)} сзади`, 'death');
+    damage(g, t, t.hp, { pierce: true });
   } else {
     damage(g, t, info.dmg);
     if (T.knockback) pushAway(g, u, t);
@@ -664,7 +688,7 @@ function performAction(g, side, a) {
   }
   // Скрытый Диверсант: противник не видит его перемещений и находок
   if (!err && actor && actor.alive && (hiddenBefore || R.isHidden(g, actor))) {
-    const own = ['move', 'jetpack', 'pickup', 'heal', 'luck', 'itemchange', 'crate'];
+    const own = ['move', 'jetpack', 'pickup', 'heal', 'luck', 'itemchange', 'crate', 'buff'];
     for (const e of g.events) if (e.unitId === actor.id && own.includes(e.type) && e.vis === 'all') e.vis = side;
     if (R.isHidden(g, actor)) for (let i = logStart; i < g.log.length; i++) if (g.log[i].vis === 'all') g.log[i].vis = side;
   }

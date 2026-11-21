@@ -35,8 +35,8 @@
       desc: 'Очень живучий, но медленный. Удар отбрасывает цель на клетку.' },
     engineer: { name: 'Инженер', hp: 4, move: 2, dmg: 1, range: 2, minRange: 1, cost: 3, price: 600, ability: 'turret',
       desc: 'Способность (Действие): ставит турель рядом (одна на инженера). Турель сама стреляет в конце вашего хода.' },
-    saboteur: { name: 'Диверсант', hp: 4, move: 3, dmg: 3, range: 1, minRange: 1, cost: 3, price: 600, stealth: true,
-      desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту.' },
+    saboteur: { name: 'Диверсант', hp: 4, move: 3, dmg: 3, range: 1, minRange: 1, cost: 3, price: 600, stealth: true, backstab: true,
+      desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту. Удар в спину (с любой из 3 клеток позади цели) убивает мгновенно — спасает только Энергощит.' },
     turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 2, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по ближайшему врагу в радиусе 2.' },
   };
@@ -81,7 +81,14 @@
     medkit: { name: 'Нано-аптечка', g: 'f', active: false, instant: true, weight: 1 },
     landmine: { name: 'Мина', g: 'f', active: true, weight: 1 },
     luck: { name: 'Клевер удачи', g: 'm', active: false, instant: true, weight: 2 },
+    // Ингибиторы: действуют мгновенно и до конца матча, усиливают юнита, который их подобрал
+    inh_dmg: { name: 'Ингибитор ярости', g: 'm', active: false, instant: true, inhibitor: 'dmg', weight: 1 },
+    inh_range: { name: 'Ингибитор прицела', g: 'm', active: false, instant: true, inhibitor: 'range', weight: 1 },
+    inh_move: { name: 'Ингибитор скорости', g: 'm', active: false, instant: true, inhibitor: 'move', weight: 1 },
+    inh_steady: { name: 'Ингибитор стабилизации', g: 'm', active: false, instant: true, inhibitor: 'steady', weight: 1.5, sniperOnly: true },
   };
+  // Потолок усиления одного юнита ингибиторами
+  const BUFF_CAP = { dmg: 4, range: 3, move: 3 };
   const ITEM_KEYS = Object.keys(ITEMS);
 
   // Характеристики предметов по уровню редкости (0 — Обычный … 4 — Мифический)
@@ -92,6 +99,10 @@
     medkit: { heal: [3, 4, 5, 7, 99], maxHp: [0, 0, 0, 1, 2] },
     landmine: { dmg: [3, 4, 5, 6, 7], charges: [1, 1, 2, 2, 3] },
     luck: { luck: [2, 3, 4, 6, 8], turns: [2, 3, 3, 4, 5] },
+    inh_dmg: { amount: [1, 1, 2, 2, 3] },
+    inh_range: { amount: [1, 1, 1, 2, 2] },
+    inh_move: { amount: [1, 1, 2, 2, 3] },
+    inh_steady: { amount: [0, 0, 1, 1, 2] }, // бонус к дальности для редких
   };
   function itemStat(type, tier, stat) {
     const t = ITEM_STATS[type] && ITEM_STATS[type][stat];
@@ -114,6 +125,10 @@
       case 'jetpack': return `${z(ch)}. Прыжок на свободную клетку в радиусе ${st('range')} (сквозь стены и юнитов). Тратит Движение.`;
       case 'medkit': return `Мгновенно: ${st('heal') >= 99 ? 'полное лечение' : `+${st('heal')} HP`}${st('maxHp') ? `, +${st('maxHp')} к макс. HP` : ''}, снятие дебаффов.`;
       case 'landmine': return `${z(ch)}. Скрытая мина на соседнюю клетку: ${st('dmg')} урона врагу, остановка и контузия. Тратит Действие.`;
+      case 'inh_dmg': return `Мгновенно и до конца матча: +${st('amount')} к урону атак этого юнита.`;
+      case 'inh_range': return `Мгновенно и до конца матча: +${st('amount')} к дальности атак этого юнита.`;
+      case 'inh_move': return `Мгновенно и до конца матча: +${st('amount')} к дальности движения этого юнита.`;
+      case 'inh_steady': return `Только для Снайпера. До конца матча может двигаться и стрелять в один ход${st('amount') ? `, +${st('amount')} к дальности` : ''}.`;
       case 'luck': return `Мгновенно: удача команды +${st('luck')} на ${st('turns')} ${st('turns') < 5 ? 'хода' : 'ходов'} (включая текущий). Удача повышает шанс редкого лута и двойного дропа. Пока клевер действует, новый клевер команде не выпадает.`;
       default: return '';
     }
@@ -200,17 +215,28 @@
   }
   function canMove(g, u) {
     return !!u && u.alive && u.side === g.turn && !u.moved &&
-      !(u.type === 'sniper' && u.attacked) && canUseUnit(g, u);
+      !(sniperLocked(u) && u.attacked) && canUseUnit(g, u);
   }
   function canAct(g, u) {
     return !!u && u.alive && u.side === g.turn && !u.acted && canUseUnit(g, u);
   }
   function canShoot(g, u) {
-    return canAct(g, u) && !(u.type === 'sniper' && u.moved);
+    return canAct(g, u) && !(sniperLocked(u) && u.moved);
   }
+  const buff = (u, k) => (u.buffs && u.buffs[k]) || 0;
+  // Итоговые характеристики юнита с учётом ингибиторов
+  function unitDmg(u) { return UNIT_TYPES[u.type].dmg + buff(u, 'dmg'); }
+  function unitRange(u) { return UNIT_TYPES[u.type].range + buff(u, 'range'); }
+  // Снайпер не может двигаться и стрелять в один ход, если нет Ингибитора стабилизации
+  const sniperLocked = (u) => u.type === 'sniper' && !buff(u, 'steady');
   function moveRange(u) {
     if (UNIT_TYPES[u.type].static) return 0;
-    return Math.max(1, UNIT_TYPES[u.type].move - (u.slowed ? 1 : 0) + (u.boost || 0));
+    return Math.max(1, UNIT_TYPES[u.type].move + buff(u, 'move') - (u.slowed ? 1 : 0) + (u.boost || 0));
+  }
+  // «Спина» юнита — сторона его базы: у Синих снизу (y больше), у Красных сверху
+  function isBehind(attacker, target) {
+    const dir = target.side === 'blue' ? 1 : -1;
+    return (attacker.y - target.y) * dir > 0;
   }
 
   // BFS по 4 направлениям. Возвращает Map(key -> prevKey)
@@ -259,19 +285,20 @@
     if (!u || !t || !t.alive) return { ok: false, reason: 'Нет цели' };
     if (t.side === u.side) return { ok: false, reason: 'Это союзник' };
     if (!canAct(g, u)) return { ok: false, reason: 'Действие уже потрачено' };
-    if (u.type === 'sniper' && u.moved) return { ok: false, reason: 'Снайпер уже двигался' };
+    if (sniperLocked(u) && u.moved) return { ok: false, reason: 'Снайпер уже двигался' };
     let min, max, dmg;
     if (mode === 'shotgun') {
       if (!u.item || u.item.type !== 'shotgun') return { ok: false, reason: 'Нет дробовика' };
       min = SHOTGUN.minRange; max = SHOTGUN.range; dmg = itemStat('shotgun', u.item.tier, 'dmg');
     } else {
       const T = UNIT_TYPES[u.type];
-      min = T.minRange; max = T.range; dmg = T.dmg;
+      min = T.minRange; max = unitRange(u); dmg = unitDmg(u);
     }
     const d = cheb(u, t);
     if (d < min) return { ok: false, reason: 'Слишком близко' };
     if (d > max) return { ok: false, reason: 'Вне дальности' };
     if (!(mode !== 'shotgun' && UNIT_TYPES[u.type].lob) && !hasLOS(g, u, t)) return { ok: false, reason: 'Нет линии огня' };
+    if (mode !== 'shotgun' && UNIT_TYPES[u.type].backstab && isBehind(u, t)) return { ok: true, dmg: Math.max(dmg, t.hp), backstab: true };
     return { ok: true, dmg };
   }
   function targets(g, u, mode) {
@@ -349,6 +376,7 @@
     RARITIES, MAX_LUCK, ITEM_STATS, itemStat, rarityName, itemFullName, itemDesc,
     lootLevel, cratesPerDrop, maxCrates, dropInterval, rarityWeights, rarityChances, doubleDropChance,
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS,
+    BUFF_CAP, unitDmg, unitRange, isBehind, sniperLocked,
     canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
     BASIC_UNITS, SHOP_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
     squadError, squadCost, isHidden, abilityTargets,

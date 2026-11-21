@@ -738,6 +738,25 @@
         await wait(250);
         return;
       }
+      case 'buff': {
+        if (!u) return;
+        u.buffs = e.buffs;
+        const txt = { dmg: '+УРОН', range: '+ДАЛЬНОСТЬ', move: '+ХОД', steady: 'СТАБИЛИЗАЦИЯ' }[e.kind];
+        addFloat(txt, u.x, u.y, '#f472b6');
+        burst(cellCenter(u.x, u.y), 16, ['#f472b6', '#fbcfe8', '#fff'], 1.4, -1);
+        await wait(250);
+        return;
+      }
+      case 'backstab': {
+        if (u) {
+          addFloat('УДАР В СПИНУ!', u.x, u.y, '#c084fc', true);
+          burst(cellCenter(u.x, u.y), 22, ['#c084fc', '#1f2937', '#fff'], 2.2);
+        }
+        shake = Math.max(shake, 5);
+        Sound.shotgun();
+        await wait(220);
+        return;
+      }
       case 'aura': {
         if (u) addFloat('ЩИТ −1', u.x, u.y, '#93c5fd');
         return;
@@ -1114,6 +1133,8 @@
     const pct = Math.round((u.hp / u.maxHp) * 100);
     const hpCol = pct > 60 ? '#4ade80' : pct > 30 ? '#facc15' : '#ef4444';
     const mvR = R.moveRange(u);
+    const bf = u.buffs || {};
+    const inh = [bf.dmg && `+${bf.dmg} урон`, bf.range && `+${bf.range} дальн.`, bf.move && `+${bf.move} ход`, bf.steady && 'ходит и стреляет'].filter(Boolean);
     const it = u.item ? R.ITEMS[u.item.type] : null;
     const rar = u.item ? R.RARITIES[u.item.tier || 0] : null;
     let status = '';
@@ -1122,7 +1143,7 @@
     } else if (u.side === view.turn && !view.winner) {
       const usable = R.canUseUnit(view, u);
       status = usable
-        ? `<div class="status-row"><span class="pip ${R.canMove(view, u) ? 'ok' : 'no'}">Движение</span><span class="pip ${R.canAct(view, u) ? 'ok' : 'no'}">Действие</span>${u.type === 'sniper' ? '<span class="pip ' + (R.canShoot(view, u) ? 'ok' : 'no') + '">Выстрел</span>' : ''}</div>`
+        ? `<div class="status-row"><span class="pip ${R.canMove(view, u) ? 'ok' : 'no'}">Движение</span><span class="pip ${R.canAct(view, u) ? 'ok' : 'no'}">Действие</span>${R.sniperLocked(u) ? '<span class="pip ' + (R.canShoot(view, u) ? 'ok' : 'no') + '">Выстрел</span>' : ''}</div>`
         : '<div class="status-row"><span class="pip no">Лимит: 2 юнита за ход</span></div>';
     }
     let deb = '';
@@ -1156,10 +1177,10 @@
       <div class="stats">
         <div class="stat"><b>${u.hp}</b><small>HP</small></div>
         <div class="stat"><b>${mvR}${u.slowed ? '↓' : ''}</b><small>ХОД</small></div>
-        <div class="stat"><b>${T.dmg}</b><small>УРОН</small></div>
-        <div class="stat"><b>${T.minRange > 1 ? T.minRange + '–' : ''}${T.range}</b><small>ДАЛЬН.</small></div>
+        <div class="stat"><b>${R.unitDmg(u)}${bf.dmg ? '↑' : ''}</b><small>УРОН</small></div>
+        <div class="stat"><b>${T.minRange > 1 ? T.minRange + '–' : ''}${R.unitRange(u)}${bf.range ? '↑' : ''}</b><small>ДАЛЬН.</small></div>
       </div>
-      ${status}${deb}
+      ${status}${deb}${inh.length ? `<div class="debuff" style="color:#f472b6">💉 Ингибиторы: ${inh.join(', ')}</div>` : ''}
       <div class="u-desc">${T.desc}${T.stealth ? (R.isHidden(view, u) ? ' <b style="color:#4ade80">Сейчас скрыт.</b>' : ' <b style="color:#facc15">Сейчас виден врагу.</b>') : ''}${u.boost ? ` <b style="color:#22d3ee">+${u.boost} к движению в этот ход.</b>` : ''}</div>
       <div class="item-box">
         <canvas id="itemIcon"></canvas>
@@ -1511,11 +1532,15 @@
         const T = R.UNIT_TYPES[su.type];
         for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
           const d = R.cheb(su, { x, y });
-          if (d < T.minRange || d > T.range || R.isWall(view, x, y) || (!T.lob && !R.hasLOS(view, su, { x, y }))) continue;
+          if (d < T.minRange || d > R.unitRange(su) || R.isWall(view, x, y) || (!T.lob && !R.hasLOS(view, su, { x, y }))) continue;
           ctx.fillStyle = 'rgba(248,113,113,0.35)';
           ctx.fillRect(fx(x) * C + C / 2 - S, fx(y) * C + C / 2 - S, 2 * S, 2 * S);
         }
-        for (const t of R.targets(view, su, 'normal')) frameCell(t.x, t.y, `rgba(248,80,80,${0.55 + 0.45 * pulse})`, S, 0);
+        for (const t of R.targets(view, su, 'normal')) {
+          const bs = R.attackInfo(view, su, t, 'normal').backstab;
+          frameCell(t.x, t.y, bs ? `rgba(192,132,252,${0.6 + 0.4 * pulse})` : `rgba(248,80,80,${0.55 + 0.45 * pulse})`, S, 0);
+          if (bs) frameCell(t.x, t.y, `rgba(192,132,252,${0.4 + 0.4 * pulse})`, S, S * 2);
+        }
         if (su.item && su.item.type === 'shotgun') {
           for (const t of R.targets(view, su, 'shotgun')) frameCell(t.x, t.y, `rgba(251,146,60,${0.55 + 0.45 * pulse})`, S, S * 2);
         }
@@ -1695,8 +1720,8 @@
       }
       const shield = t.item && t.item.type === 'shield';
       const kill = !shield && inf.dmg >= t.hp;
-      const txt = shield ? 'ЩИТ: 0 урона' : `-${inf.dmg} HP${kill ? ' ☠' : ''}`;
-      label(txt, to.x, fx(t.y) * C - S * 2, shield ? '#22d3ee' : kill ? '#facc15' : '#f87171');
+      const txt = shield ? 'ЩИТ: 0 урона' : inf.backstab ? 'УДАР В СПИНУ ☠' : `-${inf.dmg} HP${kill ? ' ☠' : ''}`;
+      label(txt, to.x, fx(t.y) * C - S * 2, shield ? '#22d3ee' : inf.backstab ? '#c084fc' : kill ? '#facc15' : '#f87171');
     };
 
     if (mode === 'normal') {
