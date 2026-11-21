@@ -13,6 +13,8 @@ const Sprites = (() => {
     b: '#a0652a', B: '#6b3f17',
     v: '#67e8f9', V: '#0891b2', c: '#22d3ee', C: '#0e7490', e: '#4ade80', E: '#15803d', n: '#bbf7d0',
     f: '#1a2130', F: '#1f2838', h: '#2a3447', q: '#10151f', x: '#3a4760',
+    // цвета Ледяного мага (из авторского рисунка)
+    a: '#d0dcf4', i: '#cbdbfc', I: '#b1bed7', j: '#e6e6e6', l: '#f1eded', u: '#a5dee9', z: '#d7d7d7', D: '#282828', P: '#f1919a',
   };
   const TEAMS = {
     blue: { T: '#3b82f6', t: '#1d4ed8', L: '#93c5fd' },
@@ -254,6 +256,24 @@ const Sprites = (() => {
       '...kkkkkkkkkk...',
       '....kGGk.kGGk...',
       '....kkkk.kkkk...',
+    ],
+    icemage: [
+      '..............k.',
+      '.............kvk',
+      '.......k.....kck',
+      '......kwk.....k.',
+      '.....kwawk....G.',
+      '....kwaiiwk...G.',
+      '...kwaiiiiwk..G.',
+      '...kwikkkkjk..G.',
+      '...kwkckckwk..G.',
+      '....kjjwIjk...G.',
+      '...klkkkjkjk..G.',
+      '..klwwuukuwjk.G.',
+      '.kPkTTTTTTTkPkG.',
+      '..k.kwwwwwk.k.G.',
+      '...kljwwwwzk..G.',
+      '..kTTTTTTTTTk.G.',
     ],
     turret: [
       '................',
@@ -525,6 +545,24 @@ const Sprites = (() => {
       '................',
       '................',
     ],
+    p_ice: [
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+      '....kkkkkk......',
+      '..kkwwvvvvkkk...',
+      'kkwwvvvvvVVVcck.',
+      '..kkvvVVVVkkk...',
+      '....kkkkkk......',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
     i_shotgun: [
       '................',
       '................',
@@ -708,7 +746,7 @@ const Sprites = (() => {
   };
 
   const UNIT_TYPES = ['commander', 'assault', 'sniper', 'scout', 'medic', 'grenadier', 'heavy', 'engineer',
-    'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret', 'elephant', 'tracker'];
+    'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret', 'elephant', 'tracker', 'icemage'];
   const cache = new Map();
 
   // Нормализация: каждая строка ровно 16 символов (защита от опечаток в матрицах)

@@ -356,6 +356,7 @@
   }
 
   // ---- админка: выдача монет и юнитов, сброс таймеров (права только у ников из ADMIN_NAMES на сервере)
+  const SPECIAL_ICON = { elephant: '🐘', icemage: '❄' };
   function renderAdmin() {
     if (!profile || !profile.admin) return closeModal();
     $('modalBody').innerHTML = `<h2 class="modal-title">🛠 АДМИНКА</h2>
@@ -378,7 +379,7 @@
         <button class="btn small" data-op="resetTimers">Заполнить рудник + сбросить награду</button>
       </div>
       <h3>// ОСОБЫЕ ЮНИТЫ</h3>
-      <div class="btn-row admin-row">${R.SPECIAL_UNITS.map((u) => `<button class="btn small primary" data-grant="${u}">🐘 Выдать: ${R.UNIT_TYPES[u].name}</button><button class="btn small danger" data-revoke="${u}">Забрать</button>`).join('')}</div>
+      ${R.SPECIAL_UNITS.map((u) => `<div class="btn-row admin-row"><button class="btn small primary" data-grant="${u}">${SPECIAL_ICON[u] || '★'} Выдать: ${R.UNIT_TYPES[u].name}</button><button class="btn small danger" data-revoke="${u}">Забрать</button></div>`).join('')}
       <h3>// УРОВЕНЬ РУДНИКА</h3>
       <div class="btn-row admin-row">${[1, 2, 3, 4, 5].map((l) => `<button class="btn small" data-mine="${l}">${l}</button>`).join('')}</div>
       <div class="econ-dim" style="margin-top:12px">Отрицательная сумма забирает монеты. Все действия записываются в лог сервера.</div>`;
@@ -388,7 +389,7 @@
         if (!r || r.error) { toast((r && r.error) || 'Ошибка', 'err'); Sound.error(); return; }
         const t = r.target;
         const spec = R.SPECIAL_UNITS.filter((x) => t.unlocked.includes(x)).map((x) => R.UNIT_TYPES[x].name);
-        $('admInfo').innerHTML = `<b>${esc(t.name)}</b>: ${coinFmt(t.coins)} · юнитов открыто: ${t.unlocked.filter((x) => R.SHOP_UNITS.includes(x)).length}/${R.SHOP_UNITS.length}${spec.length ? ' · 🐘 ' + esc(spec.join(', ')) : ''} · рудник ур.${t.mine.level} (${t.mine.stored}/${t.mine.cap}) · 🏆 ${t.stats.wins} ✖ ${t.stats.losses}`;
+        $('admInfo').innerHTML = `<b>${esc(t.name)}</b>: ${coinFmt(t.coins)} · юнитов открыто: ${t.unlocked.filter((x) => R.SHOP_UNITS.includes(x)).length}/${R.SHOP_UNITS.length}${spec.length ? ' · ★ ' + esc(spec.join(', ')) : ''} · рудник ур.${t.mine.level} (${t.mine.stored}/${t.mine.cap}) · 🏆 ${t.stats.wins} ✖ ${t.stats.losses}`;
         if (d.op !== 'find') { toast(`✔ ${t.name}: ${r.msg}`); Sound.ready(); }
       });
     };
@@ -796,6 +797,23 @@
         await wait(300);
         return;
       }
+      case 'freeze': {
+        if (!u) return;
+        u.frozen = e.turns;
+        addFloat('ЗАМОРОЖЕН!', u.x, u.y, '#a5f3fc', true);
+        ring(cellCenter(u.x, u.y), '#a5f3fc');
+        burst(cellCenter(u.x, u.y), 22, ['#a5f3fc', '#e0f2fe', '#fff', '#67e8f9'], 1.8);
+        Sound.freeze();
+        await wait(450);
+        return;
+      }
+      case 'thaw': {
+        if (!u) return;
+        u.frozen = 0;
+        addFloat('оттаял', u.x, u.y, '#67e8f9');
+        Sound.thaw();
+        return;
+      }
       case 'aura': {
         if (u) addFloat('ЩИТ −1', u.x, u.y, '#93c5fd');
         return;
@@ -849,6 +867,7 @@
     const DUR = {
       sniper: 110, shotgun: 130, grenade: 380, punch: 150,
       bolt: 90 + d * 40, burst: 220 + d * 40, dart: 120 + d * 45, syringe: 140 + d * 45,
+      ice: 130 + d * 45, frost: 280 + d * 40,
       knife: 160 + d * 50, bone: 200 + d * 55, shield: 180 + d * 55, wave: 260 + d * 60,
     };
     const dur = Math.round(DUR[kind] != null ? DUR[kind] : 80 + d * 45);
@@ -1193,8 +1212,10 @@
     let deb = '';
     if (u.slowed) deb += '<div class="debuff">⚠ Контузия: −1 к движению в этот ход</div>';
     if (u.slowNext) deb += '<div class="debuff">⚠ Контузия: −1 к движению в следующий ход</div>';
+    if (u.frozen > 0) deb += `<div class="debuff" style="color:#a5f3fc">❄ Заморожен: не может двигаться ещё ${u.frozen} ${u.frozen === 1 ? 'ход' : 'хода'}</div>`;
+    if (u.freezeCd > 0) deb += `<div class="debuff" style="color:#67e8f9">❄ Ледяной залп перезаряжается: ${u.freezeCd} ${u.freezeCd === 1 ? 'ход' : 'хода'}</div>`;
     let btns = '';
-    const AB = { trumpet: ['Трубный рёв', 'Нажмите на слоника — враги вокруг получат урон и отлетят'], heal: ['Лечить', 'Выберите раненого союзника рядом'], boost: ['Ускорить союзника', 'Выберите союзника в радиусе 2'], turret: ['Поставить турель', 'Выберите клетку рядом'] };
+    const AB = { freeze: ['Ледяной залп', 'Выберите врага в радиусе 4 — он не сможет ходить 2 хода'], trumpet: ['Трубный рёв', 'Нажмите на слоника — враги вокруг получат урон и отлетят'], heal: ['Лечить', 'Выберите раненого союзника рядом'], boost: ['Ускорить союзника', 'Выберите союзника в радиусе 2'], turret: ['Поставить турель', 'Выберите клетку рядом'] };
     if (own && T.ability && !view.winner) {
       const ok = R.abilityTargets(view, u).length > 0;
       const active = mode === 'ability';
@@ -1694,6 +1715,19 @@
       ctx.globalAlpha = alpha;
       const flash = (flashes.get(u.id) || 0) > now;
       ctx.drawImage(Sprites.get(u.type, u.side, flash ? 'flash' : ''), gx, py, C, C);
+      if (u.frozen > 0) {
+        // ледяная корка: полупрозрачная заливка, рамка и кристаллы по углам
+        ctx.globalAlpha = 0.38;
+        ctx.fillStyle = '#a5f3fc';
+        ctx.fillRect(gx + 2 * S, py + 2 * S, 12 * S, 13 * S);
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = '#e0f2fe';
+        for (const [cx, cy] of [[2, 2], [13, 2], [2, 14], [13, 14], [7, 1]]) ctx.fillRect(gx + cx * S, py + cy * S, S, S);
+        ctx.strokeStyle = '#67e8f9';
+        ctx.lineWidth = S;
+        ctx.strokeRect(gx + 2.5 * S, py + 2.5 * S, 11 * S, 12 * S);
+        ctx.globalAlpha = alpha;
+      }
       if (u.item && u.item.type === 'shield') {
         ctx.globalAlpha = 0.45 + 0.35 * Math.sin(now / 160);
         ctx.drawImage(Sprites.get('shieldfx'), gx, py, C, C);
@@ -1845,7 +1879,7 @@
   // Снаряды-спрайты: [имя, вращается, размер в долях клетки]
   const PROJ_SPRITE = {
     knife: ['p_knife', true, 0.6], bone: ['p_bone', true, 0.7], syringe: ['p_syringe', false, 0.6],
-    dart: ['p_dart', false, 0.55], punch: ['p_fist', false, 0.75], shield: ['i_shield', true, 0.6],
+    dart: ['p_dart', false, 0.55], ice: ['p_ice', false, 0.6], punch: ['p_fist', false, 0.75], shield: ['i_shield', true, 0.6],
   };
   function drawFx(now, dt) {
     // снаряды
@@ -1857,7 +1891,7 @@
         projectiles.splice(i, 1);
         const HIT = {
           shotgun: ['#fb923c', '#facc15'], knife: ['#e5e7eb', '#ef4444'], bone: ['#f8fafc', '#d1d5db'], syringe: ['#22d3ee', '#fff'],
-          dart: ['#22d3ee', '#fff'], scan: ['#22d3ee', '#a5f3fc', '#fff'], punch: ['#fb923c', '#9ca3af', '#fff'], shield: ['#22d3ee', '#93c5fd'], wave: ['#4ade80', '#bbf7d0'],
+          dart: ['#22d3ee', '#fff'], ice: ['#a5f3fc', '#fff'], frost: ['#a5f3fc', '#67e8f9', '#fff'], scan: ['#22d3ee', '#a5f3fc', '#fff'], punch: ['#fb923c', '#9ca3af', '#fff'], shield: ['#22d3ee', '#93c5fd'], wave: ['#4ade80', '#bbf7d0'],
           bolt: ['#facc15', '#fde68a', '#fff'],
         };
         burst(b, p.kind === 'punch' ? 14 : 8, HIT[p.kind] || ['#fff', TEAM_COL[p.side] || '#fff'], 1.6);
@@ -1879,6 +1913,16 @@
         ctx.rotate(ang);
         ctx.drawImage(Sprites.get(name), -size / 2, -size / 2, size, size);
         ctx.restore();
+      } else if (p.kind === 'frost') {
+        // ледяной луч с искрами-снежинками
+        const tx = a.x + (b.x - a.x) * Math.max(0, t - 0.5), ty = a.y + (b.y - a.y) * Math.max(0, t - 0.5);
+        pixLine(tx, ty, hx, hy, 3 * S, '#0891b2', 1);
+        pixLine(tx, ty, hx, hy, S, '#e0f2fe', 1);
+        for (let k = 0; k < 4; k++) {
+          const tk = Math.max(0, t - Math.random() * 0.5);
+          ctx.fillStyle = k % 2 ? '#fff' : '#a5f3fc';
+          ctx.fillRect(snap(a.x + (b.x - a.x) * tk + (Math.random() - 0.5) * C * 0.3), snap(a.y + (b.y - a.y) * tk + (Math.random() - 0.5) * C * 0.3), S, S);
+        }
       } else if (p.kind === 'bolt') {
         const tx = a.x + (b.x - a.x) * Math.max(0, t - 0.3), ty = a.y + (b.y - a.y) * Math.max(0, t - 0.3);
         pixLine(tx, ty, hx, hy, 4 * S, '#a16207', 1);

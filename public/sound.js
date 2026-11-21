@@ -252,6 +252,14 @@ const Sound = (() => {
           tone({ type: 'square', f: 1100, f2: 1300, dur: 0.12, vol: 0.06 });
           tone({ type: 'triangle', f: 660, dur: 0.25, vol: 0.08, delay: 0.1 });
           return;
+        case 'ice':
+          tone({ type: 'sine', f: 2400, f2: 1800, dur: 0.15, vol: 0.06 });
+          noise({ f: 6000, f2: 3000, dur: 0.12, vol: 0.08, filter: 'bandpass', q: 3 });
+          return;
+        case 'frost':
+          noise({ f: 2000, f2: 8000, dur: 0.3, vol: 0.1, filter: 'bandpass', q: 2 });
+          tone({ type: 'sine', f: 1200, f2: 2600, dur: 0.3, vol: 0.06 });
+          return;
         case 'scan':
           for (let i = 0; i < 2; i++) tone({ type: 'sine', f: 1500 - i * 300, f2: 2200 - i * 300, dur: 0.12, vol: 0.07, delay: i * 0.09 });
           return;
@@ -261,6 +269,14 @@ const Sound = (() => {
         default: return this.laser();
       }
     },
+    // Заморозка: звон ледяных кристаллов и треск льда (синтез)
+    freeze() {
+      [2093, 2637, 3136, 2349, 2794].forEach((f, i) => tone({ type: 'sine', f, f2: f * 1.01, dur: 0.35, vol: 0.05, delay: i * 0.045 }));
+      tone({ type: 'triangle', f: 1568, f2: 784, dur: 0.5, vol: 0.06, delay: 0.05 });
+      for (let i = 0; i < 4; i++) noise({ f: 7000, dur: 0.03, vol: 0.12, filter: 'highpass', delay: 0.18 + i * 0.05 });
+      noise({ f: 4000, f2: 9000, dur: 0.4, vol: 0.05, filter: 'bandpass', q: 4, delay: 0.1 });
+    },
+    thaw() { [1760, 1318, 988].forEach((f, i) => tone({ type: 'sine', f, dur: 0.12, vol: 0.04, delay: i * 0.06 })); },
     trumpet() {
       tone({ type: 'sawtooth', f: 180, f2: 330, dur: 0.25, vol: 0.14 });
       tone({ type: 'sawtooth', f: 330, f2: 300, dur: 0.45, vol: 0.14, delay: 0.24 });
