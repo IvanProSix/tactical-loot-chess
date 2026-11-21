@@ -32,3 +32,5 @@ node server.js
 - `public/shared.js`: общие правила (LOS по Брезенхэму, BFS, дальности), используются сервером и клиентом
 - `public/game.js`: клиент (меню, комнаты, Canvas, анимации, UI), `public/menubg.js`: живой фон меню
 - `public/sprites.js`: спрайты 16x16, `public/sound.js`: синтезатор Web Audio (эффекты и музыка меню)
+
+https://tactical-loot-chess-like.onrender.com/
