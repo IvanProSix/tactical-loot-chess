@@ -318,7 +318,7 @@
         <div id="authErr" class="auth-err"></div>
         <button class="btn primary big" type="submit">${reg ? 'Создать аккаунт' : 'Войти'}</button>
         <div class="auth-switch">${reg ? 'Уже есть аккаунт? <a href="#" id="authSwitch">Войти</a>' : 'Нет аккаунта? <a href="#" id="authSwitch">Зарегистрироваться</a>'}</div>
-        ${reg ? `<div class="econ-dim">Стартовый капитал: ${200} 💰. Пароль хранится в зашифрованном виде.</div>` : ''}
+        ${reg ? `<div class="econ-dim">Пароль — от 6 символов. Стартовый капитал: 200 💰. Пароль хранится только в виде хеша.</div>` : ''}
       </form>`;
     $('authSwitch').onclick = (e) => { e.preventDefault(); openAuth(reg ? 'login' : 'register'); };
     setTimeout(() => (reg || !$('authName').value ? $('authName') : $('authPass')).focus(), 50);

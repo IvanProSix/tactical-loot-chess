@@ -16,6 +16,7 @@ const ECON = {
   LOSS_PCT: 0.15,
   MIN_ROUNDS: 3, // более короткие матчи не влияют на баланс
   FARM_LIMIT: 3, // наград за победы над одним и тем же соперником в день
+  DAILY_WIN_LIMIT: 10, // всего оплачиваемых побед в день (защита от фарма на «твинках»)
   MINE_RATE: [20, 35, 55, 80, 120], // монет в час по уровням рудника
   MINE_UPGRADE: [400, 900, 1800, 3500], // цена перехода на следующий уровень
   MINE_CAP_HOURS: 8,
@@ -67,7 +68,8 @@ class PgStore {
   constructor(url) {
     const { Pool } = require('pg');
     url = url.replace(/([?&])channel_binding=[^&]*&?/, '$1').replace(/[?&]$/, ''); // не нужен node-pg
-    this.pool = new Pool({ connectionString: url, ssl: /localhost|127\.0\.0\.1/.test(url) ? false : { rejectUnauthorized: false }, max: 4 });
+    url = url.replace(/sslmode=(require|prefer|verify-ca)/, 'sslmode=verify-full'); // проверка сертификата сервера БД
+    this.pool = new Pool({ connectionString: url, max: 4 });
   }
   async init() {
     await this.pool.query(`CREATE TABLE IF NOT EXISTS players (
@@ -146,6 +148,10 @@ function normalize(p) {
   p.sessions = Array.isArray(p.sessions) ? p.sessions : [];
 }
 
+// Админы: список ников только из переменной окружения ADMIN_NAMES (через запятую)
+const ADMINS = new Set(String(process.env.ADMIN_NAMES || '').split(',').map((s) => s.replace(/\s+/g, ' ').trim().toLowerCase()).filter(Boolean));
+const isAdmin = (p) => !!p && ADMINS.has(p.nameLc);
+
 // ---------------------------------------------------------------- Аутентификация
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 function hashPass(pass, salt) {
@@ -169,8 +175,10 @@ async function register(rawName, pass) {
   const name = cleanAccName(rawName);
   const err = nameError(name);
   if (err) return { error: err };
-  if (typeof pass !== 'string' || pass.length < 4 || pass.length > 64) return { error: 'Пароль: от 4 до 64 символов' };
+  if (typeof pass !== 'string' || pass.length < 6 || pass.length > 64) return { error: 'Пароль: от 6 до 64 символов' };
   const nameLc = name.toLowerCase();
+  // ник из ADMIN_NAMES нельзя зарегистрировать: иначе его мог бы занять кто угодно и получить права
+  if (ADMINS.has(nameLc)) return { error: 'Этот ник зарезервирован' };
   if (await loadByName(nameLc)) return { error: 'Такой ник уже занят' };
   const salt = crypto.randomBytes(16).toString('hex');
   const p = {
@@ -292,6 +300,8 @@ function matchResult(winner, loser, rounds) {
   if (winner.farm.day !== today) winner.farm = { day: today, vs: {} };
   const n = winner.farm.vs[loser.id] || 0;
   if (n >= ECON.FARM_LIMIT) return { note: `Лимит: не больше ${ECON.FARM_LIMIT} оплачиваемых побед над одним соперником в день` };
+  const total = Object.values(winner.farm.vs).reduce((s, v) => s + v, 0);
+  if (total >= ECON.DAILY_WIN_LIMIT) return { note: `Лимит: не больше ${ECON.DAILY_WIN_LIMIT} оплачиваемых побед в день` };
   winner.farm.vs[loser.id] = n + 1;
   const win = ECON.WIN_BASE + Math.min(ECON.WIN_STREAK_MAX, winner.stats.streak * ECON.WIN_STREAK_STEP);
   const lose = Math.floor(loser.coins * ECON.LOSS_PCT);
@@ -304,9 +314,6 @@ function matchResult(winner, loser, rounds) {
 }
 
 // ---------------------------------------------------------------- Админы
-// Список ников задаётся только переменной окружения ADMIN_NAMES (через запятую) — выдать права с сайта нельзя
-const ADMINS = new Set(String(process.env.ADMIN_NAMES || '').split(',').map((s) => cleanAccName(s).toLowerCase()).filter(Boolean));
-const isAdmin = (p) => !!p && ADMINS.has(p.nameLc);
 async function adminAction(admin, d) {
   if (!isAdmin(admin)) return { error: 'Нет прав администратора' };
   const name = cleanAccName((d && d.name) || admin.name);
@@ -355,6 +362,10 @@ function profileView(p) {
 }
 
 module.exports = {
-  ECON, init: () => store.init(), flushAll, peek: (id) => cache.get(id) || null, register, login, resume, logout, loadById,
+  ECON, init: async () => {
+    await store.init();
+    for (const n of ADMINS) if (!(await loadByName(n))) console.warn(`[admin] ⚠ ник «${n}» из ADMIN_NAMES не зарегистрирован`);
+    if (ADMINS.size) console.log(`[admin] админов в ADMIN_NAMES: ${ADMINS.size}`);
+  }, flushAll, peek: (id) => cache.get(id) || null, register, login, resume, logout, loadById,
   profileView, adminAction, collectMine, upgradeMine, claimDaily, buyUnit, setSquad, matchResult,
 };

@@ -18,10 +18,61 @@ const TURN_MS = R.TURN_SECONDS * 1000;
 const LOBBY_GRACE_MS = 20000;
 
 const app = express();
+app.disable('x-powered-by');
+// Заголовки безопасности: запрет встраивания во фреймы (кликджекинг), CSP — только свои скрипты
+app.use((req, res, next) => {
+  res.set({
+    'X-Frame-Options': 'DENY',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'same-origin',
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+      "connect-src 'self' ws: wss:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  });
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (req, res) => res.json({ ok: true }));
 const server = http.createServer(app);
-const io = new Server(server, { pingInterval: 10000, pingTimeout: 10000 });
+const io = new Server(server, { pingInterval: 10000, pingTimeout: 10000, maxHttpBufferSize: 16 * 1024 });
+
+// ---------------------------------------------------------------- Ограничения (анти-спам / анти-перебор)
+// IP клиента. Render стоит за Cloudflare: True-Client-IP / CF-Connecting-IP проставляет сам прокси
+// (клиент их подделать не может). Первый адрес из X-Forwarded-For клиент может подставить сам — его не берём.
+function ipOf(socket) {
+  const h = socket.handshake.headers;
+  const xf = String(h['x-forwarded-for'] || '').split(',').map((v) => v.trim()).filter(Boolean);
+  return String(h['true-client-ip'] || h['cf-connecting-ip'] || xf[xf.length - 1] || socket.handshake.address || '?').slice(0, 64);
+}
+// Счётчик событий в скользящем окне: hit(key, limit, windowMs) → true, если лимит превышен
+const hits = new Map();
+function hit(key, limit, windowMs) {
+  const now = Date.now();
+  const arr = (hits.get(key) || []).filter((t) => now - t < windowMs);
+  arr.push(now);
+  hits.set(key, arr);
+  return arr.length > limit;
+}
+function overLimit(key, limit, windowMs) {
+  const now = Date.now();
+  return (hits.get(key) || []).filter((t) => now - t < windowMs).length >= limit;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, arr] of hits) if (!arr.length || now - arr[arr.length - 1] > 3600e3) hits.delete(k);
+}, 60e3).unref();
+const MAX_CONN_PER_IP = 20;
+const connPerIp = new Map();
+io.use((socket, next) => {
+  const ip = ipOf(socket);
+  const n = connPerIp.get(ip) || 0;
+  if (n >= MAX_CONN_PER_IP) return next(new Error('too_many_connections'));
+  connPerIp.set(ip, n + 1);
+  socket.once('disconnect', () => {
+    const m = (connPerIp.get(ip) || 1) - 1;
+    if (m <= 0) connPerIp.delete(ip); else connPerIp.set(ip, m);
+  });
+  next();
+});
 
 // ---------------------------------------------------------------- Комнаты
 // Каждая партия живёт в своей комнате с 4-символьным кодом (ссылка вида /?room=AB12).
@@ -848,14 +899,28 @@ setInterval(() => {
 
 // ---------------------------------------------------------------- Сокеты
 io.on('connection', (socket) => {
+  const ip = ipOf(socket);
+  // не больше 40 сообщений в секунду с одного соединения; при злоупотреблении — отключение
+  let floodN = 0, floodT = Date.now(), floodStrikes = 0;
+  socket.use((packet, next) => {
+    const now = Date.now();
+    if (now - floodT > 1000) { floodT = now; floodN = 0; }
+    if (++floodN > 40) {
+      if (++floodStrikes > 20) socket.disconnect(true);
+      return;
+    }
+    next();
+  });
   const cur = () => {
     const info = socketsInfo.get(socket.id);
     return info && info.code ? rooms.get(info.code) || null : null;
   };
 
+  let helloDone = false;
   socket.on('hello', async (d) => {
     const token = String((d && d.token) || '').slice(0, 64);
-    if (!token) return;
+    if (!token || helloDone) return; // повторный hello на том же соединении игнорируем
+    helloDone = true;
     let player = null;
     if (d && d.session) {
       try { player = await A.resume(d.session); } catch (e) { console.error('[acc] resume', e.message); }
@@ -872,25 +937,35 @@ io.on('connection', (socket) => {
   });
 
   // ---- аккаунт
-  const authHandler = (fn) => async (d, cb) => {
+  const authHandler = (kind, fn) => async (d, cb) => {
     const reply = typeof cb === 'function' ? cb : () => {};
     const info = socketsInfo.get(socket.id);
     if (!info) return reply({ error: 'Нет связи с сервером' });
-    if (info.fails >= 5 && Date.now() - info.failAt < 60000) return reply({ error: 'Слишком много попыток, подождите минуту' });
+    const name = String((d && d.name) || '').slice(0, 32);
+    const acc = 'acc:' + name.replace(/\s+/g, ' ').trim().toLowerCase();
+    // перебор паролей: 10 неудач с IP или 10 неудач по одному нику за 15 минут — пауза
+    if (overLimit('fail:' + ip, 10, 15 * 60e3) || overLimit('fail:' + acc, 10, 15 * 60e3)) {
+      return reply({ error: 'Слишком много неудачных попыток, подождите 15 минут' });
+    }
+    // регистрация: не больше 5 аккаунтов с одного IP в час
+    if (kind === 'register' && overLimit('reg:' + ip, 5, 3600e3)) return reply({ error: 'Слишком много регистраций, попробуйте позже' });
     let r;
-    try { r = await fn(String((d && d.name) || ''), d && d.pass); } catch (e) {
+    try { r = await fn(name, d && d.pass); } catch (e) {
       console.error('[acc]', e.message);
       return reply({ error: 'Ошибка сервера, попробуйте позже' });
     }
-    if (r.error) { info.fails = (info.fails || 0) + 1; info.failAt = Date.now(); return reply({ error: r.error }); }
-    info.fails = 0;
+    if (r.error) {
+      if (kind === 'login') { hit('fail:' + ip, 1e9, 15 * 60e3); hit('fail:' + acc, 1e9, 15 * 60e3); }
+      return reply({ error: r.error });
+    }
+    if (kind === 'register') hit('reg:' + ip, 1e9, 3600e3);
     info.playerId = r.player.id;
     info.name = r.player.name;
     reply({ session: r.session, profile: A.profileView(r.player) });
     refreshSeat(socket);
   };
-  socket.on('register', authHandler(A.register));
-  socket.on('login', authHandler(A.login));
+  socket.on('register', authHandler('register', A.register));
+  socket.on('login', authHandler('login', A.login));
   socket.on('logout', (session) => {
     const info = socketsInfo.get(socket.id);
     if (!info || !info.playerId) return;
@@ -927,6 +1002,7 @@ io.on('connection', (socket) => {
     const p = info && info.playerId ? A.peek(info.playerId) : null;
     if (!p) return reply({ error: 'Войдите в аккаунт' });
     let r;
+    if (hit('admin:' + ip, 60, 60e3)) return reply({ error: 'Слишком часто' });
     try { r = await A.adminAction(p, d || {}); } catch (e) {
       console.error('[admin]', e.message);
       return reply({ error: 'Ошибка сервера' });
@@ -943,9 +1019,11 @@ io.on('connection', (socket) => {
 
   socket.on('listRooms', (cb) => { if (typeof cb === 'function') cb(publicRooms()); });
 
+  const roomSpam = () => hit('room:' + ip, 15, 10 * 60e3); // не больше 15 комнат за 10 минут с одного IP
   socket.on('createRoom', (cb) => {
     if (!socketsInfo.has(socket.id)) return;
     if (rooms.size >= MAX_ROOMS) return socket.emit('errorMsg', 'Сервер переполнен, попробуйте позже');
+    if (roomSpam()) return socket.emit('errorMsg', 'Слишком много комнат, подождите немного');
     const room = createRoom(false);
     joinRoom(socket, room);
     console.log(`[room] ${room.code} создана (комнат: ${rooms.size})`);
@@ -990,6 +1068,7 @@ io.on('connection', (socket) => {
     const info = socketsInfo.get(socket.id);
     if (!info) return;
     if (rooms.size >= MAX_ROOMS) return socket.emit('errorMsg', 'Сервер переполнен, попробуйте позже');
+    if (roomSpam()) return socket.emit('errorMsg', 'Слишком много комнат, подождите немного');
     if (info.code) leaveRoom(socket);
     const room = createRoom(true);
     info.code = room.code;
