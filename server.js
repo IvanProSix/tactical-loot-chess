@@ -513,6 +513,14 @@ function actAbility(g, side, a) {
     t.boost = R.BOOST_AMOUNT;
     ev(g, 'boost', { unitId: t.id, amount: R.BOOST_AMOUNT });
     addLog(g, `📡 ${label(u)} даёт ${label(t)} +${R.BOOST_AMOUNT} к движению`, 'sys');
+  } else if (ab === 'trumpet') {
+    ev(g, 'trumpet', { unitId: u.id });
+    addLog(g, `🐘 ${label(u)}: ТРУБНЫЙ РЁВ!`, 'atk');
+    const foes = g.units.filter((o) => o.alive && o.side !== u.side && R.cheb(o, u) <= 1);
+    for (const t of foes) {
+      damage(g, t, 1);
+      pushAway(g, u, t);
+    }
   } else if (ab === 'turret') {
     const t = makeUnit(g, u.side[0] + 't' + (g.seq++), 'turret', u.side, x, y);
     t.owner = u.id;

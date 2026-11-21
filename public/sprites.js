@@ -255,6 +255,24 @@ const Sprites = (() => {
       '.kkkk......kkkk.',
       '................',
     ],
+    elephant: [
+      '................',
+      '.......kkkkkkk..',
+      '..kkkkkTTLTTTTk.',
+      '.kEeeeEkTTTTTTk.',
+      'kEeneeEEkkkkkkek',
+      'kEnkeEEeeeeeeeek',
+      'keeeeEEeeeeeeeEk',
+      'keeeeEEeeeeeeeEk',
+      'kwkeeEeeeeeeeEEk',
+      'kwkeekkeeeeeeEEk',
+      'kek.keEEeeEEeEk.',
+      'kek.kEEkkkEEkk..',
+      'kek.kEEk.kEEk...',
+      '.kek.kEEk.kEEk..',
+      '..kk.kkkk.kkkk..',
+      '................',
+    ],
     wall: [
       'kkkkkkkkkkkkkkkk',
       'kpppppppppppppgk',
@@ -582,7 +600,7 @@ const Sprites = (() => {
   };
 
   const UNIT_TYPES = ['commander', 'assault', 'sniper', 'scout', 'medic', 'grenadier', 'heavy', 'engineer',
-    'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret'];
+    'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret', 'elephant'];
   const cache = new Map();
 
   // Нормализация: каждая строка ровно 16 символов (защита от опечаток в матрицах)

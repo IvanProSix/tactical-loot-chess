@@ -217,6 +217,11 @@ const Sound = (() => {
       tone({ type: 'triangle', f: 523, dur: 0.1, vol: 0.13 });
       tone({ type: 'triangle', f: 784, dur: 0.16, vol: 0.13, delay: 0.1 });
     },
+    trumpet() {
+      tone({ type: 'sawtooth', f: 180, f2: 330, dur: 0.25, vol: 0.14 });
+      tone({ type: 'sawtooth', f: 330, f2: 300, dur: 0.45, vol: 0.14, delay: 0.24 });
+      tone({ type: 'square', f: 165, f2: 150, dur: 0.6, vol: 0.06, delay: 0.1 });
+    },
     tick() { tone({ type: 'square', f: 1000, dur: 0.03, vol: 0.05 }); },
     error() {
       tone({ type: 'square', f: 150, dur: 0.1, vol: 0.1 });

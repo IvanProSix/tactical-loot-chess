@@ -527,3 +527,6 @@ h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: 2px; color: var(--cyan); 
 .squad-row canvas:nth-child(2n), .shop-list .shop-item:nth-child(2n) canvas, .sq-member:nth-child(2n) canvas, .sq-pick:nth-child(2n) canvas { animation-delay: -.5s; }
 .squad-row canvas:nth-child(3n), .sq-pick:nth-child(3n) canvas { animation-duration: 1.2s; }
 .sq-pick:disabled canvas { animation: none; }
+
+.sq-pick.special { border-color: #15803d; background: #10291b; }
+.sq-pick.special .sq-pname { color: #86efac; }

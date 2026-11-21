@@ -37,11 +37,15 @@
       desc: 'Способность (Действие): ставит турель рядом (одна на инженера). Турель сама стреляет в конце вашего хода.' },
     saboteur: { name: 'Диверсант', hp: 4, move: 3, dmg: 3, range: 1, minRange: 1, cost: 3, price: 600, stealth: true, backstab: true,
       desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту. Удар в спину (с любой из 3 клеток позади цели) убивает мгновенно, а Командиру наносит двойной урон (не больше 6). Спасает только Энергощит.' },
+    // Особый юнит: в магазине его нет, выдаёт только администратор
+    elephant: { name: 'Зелёный слоник', hp: 8, move: 2, dmg: 2, range: 1, minRange: 1, cost: 3, price: 0, special: true, ability: 'trumpet',
+      desc: 'Особый юнит — выдаёт только администратор. Способность (Действие): трубный рёв — все враги вокруг получают 1 урона и отлетают на клетку.' },
     turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 2, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по ближайшему врагу в радиусе 2.' },
   };
   const BASIC_UNITS = ['assault', 'sniper', 'scout'];
   const SHOP_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].price > 0);
+  const SPECIAL_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].special);
   const SQUAD_BUDGET = 12;
   const SQUAD_MAX = 5; // без Командира
   const DEFAULT_SQUAD = ['sniper', 'assault', 'scout', 'assault', 'sniper'];
@@ -341,6 +345,10 @@
       return g.units.filter((o) => o.alive && o !== u && o.side === u.side && !UNIT_TYPES[o.type].static &&
         cheb(o, u) <= 2 && !o.moved && !o.boost).map((o) => ({ x: o.x, y: o.y, id: o.id }));
     }
+    if (ab === 'trumpet') {
+      // применяется на себя, если рядом есть хотя бы один враг
+      return g.units.some((o) => o.alive && o.side !== u.side && cheb(o, u) <= 1) ? [{ x: u.x, y: u.y, id: u.id }] : [];
+    }
     if (ab === 'turret') {
       if (g.units.some((o) => o.alive && o.type === 'turret' && o.owner === u.id)) return [];
       const out = [];
@@ -381,7 +389,7 @@
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS,
     BUFF_CAP, unitDmg, unitRange, isBehind, sniperLocked,
     canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
-    BASIC_UNITS, SHOP_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
+    BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
     squadError, squadCost, isHidden, abilityTargets,
     jetpackCells, mineCells, hasUsefulMove, hasUsefulAct, shouldAutoEnd,
   };

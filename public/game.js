@@ -377,6 +377,8 @@
         <button class="btn small primary" data-op="unlockAll">Открыть все юниты</button>
         <button class="btn small" data-op="resetTimers">Заполнить рудник + сбросить награду</button>
       </div>
+      <h3>// ОСОБЫЕ ЮНИТЫ</h3>
+      <div class="btn-row admin-row">${R.SPECIAL_UNITS.map((u) => `<button class="btn small primary" data-grant="${u}">🐘 Выдать: ${R.UNIT_TYPES[u].name}</button><button class="btn small danger" data-revoke="${u}">Забрать</button>`).join('')}</div>
       <h3>// УРОВЕНЬ РУДНИКА</h3>
       <div class="btn-row admin-row">${[1, 2, 3, 4, 5].map((l) => `<button class="btn small" data-mine="${l}">${l}</button>`).join('')}</div>
       <div class="econ-dim" style="margin-top:12px">Отрицательная сумма забирает монеты. Все действия записываются в лог сервера.</div>`;
@@ -385,7 +387,8 @@
       socket.emit('admin', d, (r) => {
         if (!r || r.error) { toast((r && r.error) || 'Ошибка', 'err'); Sound.error(); return; }
         const t = r.target;
-        $('admInfo').innerHTML = `<b>${esc(t.name)}</b>: ${coinFmt(t.coins)} · юнитов открыто: ${t.unlocked.length}/${R.SHOP_UNITS.length} · рудник ур.${t.mine.level} (${t.mine.stored}/${t.mine.cap}) · 🏆 ${t.stats.wins} ✖ ${t.stats.losses}`;
+        const spec = R.SPECIAL_UNITS.filter((x) => t.unlocked.includes(x)).map((x) => R.UNIT_TYPES[x].name);
+        $('admInfo').innerHTML = `<b>${esc(t.name)}</b>: ${coinFmt(t.coins)} · юнитов открыто: ${t.unlocked.filter((x) => R.SHOP_UNITS.includes(x)).length}/${R.SHOP_UNITS.length}${spec.length ? ' · 🐘 ' + esc(spec.join(', ')) : ''} · рудник ур.${t.mine.level} (${t.mine.stored}/${t.mine.cap}) · 🏆 ${t.stats.wins} ✖ ${t.stats.losses}`;
         if (d.op !== 'find') { toast(`✔ ${t.name}: ${r.msg}`); Sound.ready(); }
       });
     };
@@ -394,6 +397,10 @@
     $('admGive').onclick = () => run({ op: 'coins', amount: Number($('admAmount').value) });
     for (const b of $('modalBody').querySelectorAll('[data-coins]')) b.onclick = () => run({ op: 'coins', amount: Number(b.dataset.coins) });
     for (const b of $('modalBody').querySelectorAll('[data-op]')) b.onclick = () => run({ op: b.dataset.op });
+    for (const b of $('modalBody').querySelectorAll('[data-grant]')) b.onclick = () => run({ op: 'grantSpecial', unit: b.dataset.grant });
+    for (const b of $('modalBody').querySelectorAll('[data-revoke]')) b.onclick = () => {
+      if (confirm(`Забрать ${R.UNIT_TYPES[b.dataset.revoke].name} у игрока ${$('admName').value.trim() || profile.name}?`)) run({ op: 'revokeSpecial', unit: b.dataset.revoke });
+    };
     for (const b of $('modalBody').querySelectorAll('[data-mine]')) b.onclick = () => run({ op: 'mineLevel', level: Number(b.dataset.mine) });
     run({ op: 'find' });
   }
@@ -446,7 +453,7 @@
   function renderSquad() {
     if (!profile) return closeModal();
     if (!draftSquad) draftSquad = profile.squad.slice();
-    const avail = R.BASIC_UNITS.concat(R.SHOP_UNITS.filter((t) => profile.unlocked.includes(t)));
+    const avail = R.BASIC_UNITS.concat(R.SHOP_UNITS.filter((t) => profile.unlocked.includes(t)), R.SPECIAL_UNITS.filter((t) => profile.unlocked.includes(t)));
     const cost = R.squadCost(draftSquad);
     const err = R.squadError(draftSquad, profile.unlocked);
     const pct = Math.min(100, (cost / R.SQUAD_BUDGET) * 100);
@@ -458,7 +465,7 @@
     const pool = avail.map((t) => {
       const T = R.UNIT_TYPES[t];
       const can = draftSquad.length < R.SQUAD_MAX && cost + T.cost <= R.SQUAD_BUDGET;
-      return `<button class="sq-pick" data-add="${t}" ${can ? '' : 'disabled'} title="${esc(T.desc)}">
+      return `<button class="sq-pick${T.special ? ' special' : ''}" data-add="${t}" ${can ? '' : 'disabled'} title="${esc(T.desc)}">
         <span data-sprite="${t}" data-size="40"></span><span class="sq-pname">${T.name}</span><span class="cost-tag">${T.cost}</span></button>`;
     }).join('');
     const locked = R.SHOP_UNITS.filter((t) => !profile.unlocked.includes(t)).length;
@@ -755,6 +762,16 @@
         shake = Math.max(shake, 5);
         Sound.shotgun();
         await wait(220);
+        return;
+      }
+      case 'trumpet': {
+        if (!u) return;
+        addFloat('ТРУ-У-У!', u.x, u.y, '#4ade80', true);
+        ring(cellCenter(u.x, u.y), '#4ade80');
+        burst(cellCenter(u.x, u.y), 18, ['#4ade80', '#15803d', '#bbf7d0'], 2);
+        shake = Math.max(shake, 4);
+        Sound.trumpet();
+        await wait(350);
         return;
       }
       case 'aura': {
@@ -1150,7 +1167,7 @@
     if (u.slowed) deb += '<div class="debuff">⚠ Контузия: −1 к движению в этот ход</div>';
     if (u.slowNext) deb += '<div class="debuff">⚠ Контузия: −1 к движению в следующий ход</div>';
     let btns = '';
-    const AB = { heal: ['Лечить', 'Выберите раненого союзника рядом'], boost: ['Ускорить союзника', 'Выберите союзника в радиусе 2'], turret: ['Поставить турель', 'Выберите клетку рядом'] };
+    const AB = { trumpet: ['Трубный рёв', 'Нажмите на слоника — враги вокруг получат урон и отлетят'], heal: ['Лечить', 'Выберите раненого союзника рядом'], boost: ['Ускорить союзника', 'Выберите союзника в радиусе 2'], turret: ['Поставить турель', 'Выберите клетку рядом'] };
     if (own && T.ability && !view.winner) {
       const ok = R.abilityTargets(view, u).length > 0;
       const active = mode === 'ability';

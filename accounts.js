@@ -139,7 +139,7 @@ async function loadByName(lc) {
 // Поля, добавленные в новых версиях, — со значениями по умолчанию
 function normalize(p) {
   p.coins = Math.max(0, Math.floor(p.coins || 0));
-  p.unlocked = Array.isArray(p.unlocked) ? p.unlocked.filter((t) => R.SHOP_UNITS.includes(t)) : [];
+  p.unlocked = Array.isArray(p.unlocked) ? p.unlocked.filter((t) => R.SHOP_UNITS.includes(t) || R.SPECIAL_UNITS.includes(t)) : [];
   if (R.squadError(p.squad, p.unlocked)) p.squad = R.DEFAULT_SQUAD.slice();
   p.mine = p.mine || { level: 1, last: Date.now() };
   p.daily = p.daily || { streak: 0, last: null };
@@ -330,7 +330,7 @@ async function adminAction(admin, d) {
       break;
     }
     case 'unlockAll':
-      t.unlocked = R.SHOP_UNITS.slice();
+      t.unlocked = R.SHOP_UNITS.concat(t.unlocked.filter((x) => R.SPECIAL_UNITS.includes(x))); // особых не трогаем
       msg = 'открыты все юниты';
       break;
     case 'resetTimers':
@@ -338,6 +338,24 @@ async function adminAction(admin, d) {
       t.daily.last = null;
       msg = 'рудник заполнен, ежедневная награда снова доступна';
       break;
+    case 'grantSpecial':
+    case 'revokeSpecial': {
+      const unit = String(d.unit || '');
+      if (!R.SPECIAL_UNITS.includes(unit)) return { error: 'Неизвестный особый юнит' };
+      const has = t.unlocked.includes(unit);
+      if (d.op === 'grantSpecial') {
+        if (has) return { error: `У игрока «${t.name}» уже есть ${R.UNIT_TYPES[unit].name}` };
+        t.unlocked.push(unit);
+        msg = `выдан ${R.UNIT_TYPES[unit].name}`;
+      } else {
+        if (!has) return { error: `У игрока «${t.name}» нет ${R.UNIT_TYPES[unit].name}` };
+        t.unlocked = t.unlocked.filter((x) => x !== unit);
+        if (t.squad.includes(unit)) t.squad = t.squad.filter((x) => x !== unit); // убираем из отряда
+        if (R.squadError(t.squad, t.unlocked)) t.squad = R.DEFAULT_SQUAD.slice();
+        msg = `забран ${R.UNIT_TYPES[unit].name}`;
+      }
+      break;
+    }
     case 'mineLevel': {
       const lvl = Math.trunc(Number(d.level));
       if (!(lvl >= 1 && lvl <= ECON.MINE_RATE.length)) return { error: 'Уровень рудника: 1–' + ECON.MINE_RATE.length };
