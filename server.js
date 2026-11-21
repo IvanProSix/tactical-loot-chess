@@ -4,7 +4,6 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const os = require('os');
 const { Server } = require('socket.io');
 const R = require('./public/shared.js');
 
@@ -23,60 +22,78 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 const server = http.createServer(app);
 const io = new Server(server, { pingInterval: 10000, pingTimeout: 10000 });
 
-// ---------------------------------------------------------------- LAN адреса
-function getLanAddresses() {
-  const out = [];
-  const ifs = os.networkInterfaces();
-  for (const [name, list] of Object.entries(ifs)) {
-    for (const a of list || []) {
-      const fam = typeof a.family === 'string' ? a.family : (a.family === 4 ? 'IPv4' : 'IPv6');
-      if (fam === 'IPv4' && !a.internal && !a.address.startsWith('169.254.')) out.push({ name, address: a.address });
-    }
-  }
-  return out;
-}
-const LAN = getLanAddresses();
-const LAN_URLS = LAN.map((a) => `http://${a.address}:${PORT}`);
-
-// ---------------------------------------------------------------- Комната
-let room = freshRoom();
-const socketsInfo = new Map(); // socket.id -> { token, name }
-
-function freshRoom() {
-  return {
-    slots: { blue: null, red: null }, // { token, name, ready, connected, socketId, graceTimer }
-    phase: 'lobby', // lobby | game | over
-    solo: false,
-    game: null,
-    rematch: { blue: false, red: false },
-    turnTimer: null,
-  };
-}
+// ---------------------------------------------------------------- Комнаты
+// Каждая партия живёт в своей комнате с 4-символьным кодом (ссылка вида /?room=AB12).
+const rooms = new Map(); // code -> room
+const socketsInfo = new Map(); // socket.id -> { token, name, code }
+const CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // без похожих символов (0/O, 1/I)
+const CODE_LEN = 4;
+const MAX_ROOMS = 300;
+const LOBBY_IDLE_MS = 3 * 60 * 1000; // пустое лобби удаляется через 3 минуты
+const GAME_IDLE_MS = 10 * 60 * 1000; // брошенный матч — через 10 минут
+const START_DELAY_MS = 3500; // отсчёт «3-2-1» на клиенте перед первым ходом
 
 const rnd = (n) => Math.floor(Math.random() * n);
 function cleanName(n) {
   const s = String(n == null ? '' : n).replace(/[<>&"'`\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
   return s || 'Боец';
 }
-function sideOfToken(token) {
+function normCode(c) {
+  const s = String(c == null ? '' : c).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, CODE_LEN);
+  return s.length === CODE_LEN ? s : null;
+}
+function newCode() {
+  let c;
+  do { c = Array.from({ length: CODE_LEN }, () => CODE_ABC[rnd(CODE_ABC.length)]).join(''); } while (rooms.has(c));
+  return c;
+}
+function createRoom(solo) {
+  const room = {
+    code: newCode(),
+    slots: { blue: null, red: null }, // { token, name, ready, connected, socketId, graceTimer }
+    phase: 'lobby', // lobby | game | over
+    solo: !!solo,
+    game: null,
+    rematch: { blue: false, red: false },
+    turnTimer: null,
+    emptySince: null,
+  };
+  rooms.set(room.code, room);
+  return room;
+}
+function deleteRoom(room) {
+  clearTimeout(room.turnTimer);
+  for (const s of SIDES) if (room.slots[s]) clearTimeout(room.slots[s].graceTimer);
+  rooms.delete(room.code);
+  for (const info of socketsInfo.values()) if (info.code === room.code) info.code = null;
+  console.log(`[room] ${room.code} закрыта (комнат: ${rooms.size})`);
+}
+function sideOfToken(room, token) {
   for (const s of SIDES) if (room.slots[s] && room.slots[s].token === token) return s;
   return null;
 }
-function viewerOf(socket) {
+function viewerOf(socket, room) {
   const info = socketsInfo.get(socket.id);
-  if (!info) return null;
+  if (!info || !room) return null;
   if (room.solo && room.slots.blue && room.slots.blue.token === info.token) return 'both';
-  return sideOfToken(info.token);
+  return sideOfToken(room, info.token);
+}
+function roomSockets(room) {
+  const ids = io.sockets.adapter.rooms.get('r:' + room.code);
+  const out = [];
+  if (ids) for (const id of ids) { const s = io.sockets.sockets.get(id); if (s && socketsInfo.has(id)) out.push(s); }
+  return out;
 }
 
 // ---------------------------------------------------------------- Создание партии
-function createGame() {
+function createGame(room) {
   const g = {
     id: Math.random().toString(36).slice(2, 10),
     walls: [], units: [], crates: [], mines: [],
     turn: 'blue', round: 1, turnNo: 1, activated: [], winner: null, luck: { blue: 0, red: 0 }, luckBuff: { blue: null, red: null },
     log: [], seq: 1, turnEndsAt: Date.now() + TURN_MS, events: null,
   };
+  Object.defineProperty(g, 'room', { value: room }); // не сериализуется
   generateWalls(g);
   placeUnits(g);
   spawnInitialCrates(g);
@@ -455,7 +472,7 @@ function endTurn(g, reason) {
   g.turnEndsAt = Date.now() + TURN_MS;
   ev(g, 'turn', { turn: g.turn, round: g.round });
   addLog(g, `— Раунд ${g.round}: ход ${SIDE_GEN[g.turn]}`, 'turn');
-  scheduleTurnTimer();
+  scheduleTurnTimer(g.room);
 }
 
 function checkWinner(g, actingSide) {
@@ -467,6 +484,7 @@ function checkWinner(g, actingSide) {
   return true;
 }
 function finishGame(g, surrendered) {
+  const room = g.room;
   room.phase = 'over';
   clearTimeout(room.turnTimer);
   room.turnTimer = null;
@@ -501,7 +519,7 @@ function performAction(g, side, a) {
   return { err, events };
 }
 
-function scheduleTurnTimer() {
+function scheduleTurnTimer(room) {
   clearTimeout(room.turnTimer);
   const g = room.game;
   if (!g || room.phase !== 'game') return;
@@ -512,12 +530,12 @@ function scheduleTurnTimer() {
     endTurn(g, 'timeout');
     const events = g.events;
     g.events = null;
-    broadcastState(events);
+    broadcastState(room, events);
   }, Math.max(0, g.turnEndsAt - Date.now()) + 250);
 }
 
 // ---------------------------------------------------------------- Фильтрация состояния (анти-чит / туман войны)
-function stateFor(viewer) {
+function stateFor(room, viewer) {
   const g = room.game;
   if (!g) return null;
   const seeAll = viewer === 'both';
@@ -553,154 +571,235 @@ function eventsFor(viewer, events) {
     return c;
   });
 }
-function broadcastState(events) {
+function broadcastState(room, events) {
   if (!room.game) return;
-  for (const [id, socket] of io.sockets.sockets) {
-    if (!socketsInfo.has(id)) continue;
-    const v = viewerOf(socket);
-    socket.emit('state', { state: stateFor(v), events: eventsFor(v, events) });
+  for (const socket of roomSockets(room)) {
+    const v = viewerOf(socket, room);
+    socket.emit('state', { state: stateFor(room, v), events: eventsFor(v, events) });
   }
 }
-function lobbyFor(socket) {
+function lobbyFor(socket, room) {
   const pub = (s) => (s ? { name: s.name, ready: s.ready, connected: s.connected } : null);
   return {
-    phase: room.phase, solo: room.solo, you: viewerOf(socket),
+    code: room.code, phase: room.phase, solo: room.solo, you: viewerOf(socket, room),
     slots: { blue: pub(room.slots.blue), red: pub(room.slots.red) },
-    urls: LAN_URLS, port: PORT,
   };
 }
-function emitLobby() {
-  for (const [id, socket] of io.sockets.sockets) {
-    if (socketsInfo.has(id)) socket.emit('lobby', lobbyFor(socket));
+function emitLobby(room) {
+  for (const socket of roomSockets(room)) socket.emit('lobby', lobbyFor(socket, room));
+}
+
+function startGame(room, solo) {
+  clearTimeout(room.turnTimer);
+  room.solo = solo;
+  room.game = createGame(room);
+  room.game.turnEndsAt += START_DELAY_MS; // первый ход начинается после отсчёта
+  room.phase = 'game';
+  room.rematch = { blue: false, red: false };
+  scheduleTurnTimer(room);
+  emitLobby(room);
+  broadcastState(room, []);
+  console.log(`[game] ${room.code}: новая партия ${room.game.id}${solo ? ' (1 экран)' : ''}`);
+}
+
+function surrender(room, loser) {
+  const g = room.game;
+  if (!g || room.phase !== 'game') return;
+  g.events = [];
+  g.winner = R.other(loser);
+  finishGame(g, loser);
+  const events = g.events;
+  g.events = null;
+  broadcastState(room, events);
+}
+
+function joinRoom(socket, room) {
+  const info = socketsInfo.get(socket.id);
+  if (!info) return;
+  if (info.code && info.code !== room.code) leaveRoom(socket);
+  info.code = room.code;
+  socket.join('r:' + room.code);
+  room.emptySince = null;
+  const side = sideOfToken(room, info.token);
+  if (side) {
+    for (const s of SIDES) {
+      const sl = room.slots[s];
+      if (sl && sl.token === info.token) {
+        sl.socketId = socket.id;
+        sl.connected = true;
+        clearTimeout(sl.graceTimer);
+        sl.graceTimer = null;
+        if (room.phase === 'lobby') sl.name = info.name;
+      }
+    }
+  } else if (room.phase === 'lobby' && !room.solo) {
+    const free = SIDES.find((s) => !room.slots[s]);
+    if (free) room.slots[free] = { token: info.token, name: info.name, ready: false, connected: true, socketId: socket.id, graceTimer: null };
+  }
+  emitLobby(room);
+  if (room.game) {
+    if (side) broadcastState(room, []);
+    else socket.emit('state', { state: stateFor(room, viewerOf(socket, room)), events: [] });
   }
 }
 
-function startGame(solo) {
-  clearTimeout(room.turnTimer);
-  room.solo = solo;
-  room.game = createGame();
-  room.phase = 'game';
-  room.rematch = { blue: false, red: false };
-  scheduleTurnTimer();
-  emitLobby();
-  broadcastState([]);
-  console.log(`[game] Новая партия ${room.game.id}${solo ? ' (тест на 1 ПК)' : ''}`);
+// Добровольный выход из комнаты (кнопка «Выйти»). Выход посреди матча = сдача.
+function leaveRoom(socket) {
+  const info = socketsInfo.get(socket.id);
+  if (!info || !info.code) return;
+  const room = rooms.get(info.code);
+  socket.leave('r:' + info.code);
+  info.code = null;
+  if (!room) return;
+  const viewer = viewerOf(socket, room);
+  if (viewer === 'both') return deleteRoom(room);
+  if (viewer === 'blue' || viewer === 'red') {
+    const sl = room.slots[viewer];
+    if (room.phase === 'game') surrender(room, viewer);
+    if (room.phase === 'lobby') { clearTimeout(sl.graceTimer); room.slots[viewer] = null; }
+    else { sl.connected = false; sl.socketId = null; }
+  }
+  if (!roomSockets(room).length) room.emptySince = Date.now();
+  emitLobby(room);
+  if (room.game) broadcastState(room, []);
 }
 
-function resetRoom() {
-  clearTimeout(room.turnTimer);
-  for (const s of SIDES) if (room.slots[s]) clearTimeout(room.slots[s].graceTimer);
-  room = freshRoom();
-  io.emit('roomReset');
-  console.log('[room] Комната сброшена');
+function publicRooms() {
+  const open = [];
+  let games = 0;
+  for (const room of rooms.values()) {
+    if (room.phase !== 'lobby') { if (!room.solo) games++; continue; }
+    if (room.solo) continue;
+    const seated = SIDES.map((s) => room.slots[s]).filter(Boolean);
+    if (seated.length === 1 && seated[0].connected) open.push({ code: room.code, host: seated[0].name });
+  }
+  return { open: open.slice(0, 20), games, online: socketsInfo.size };
 }
+
+// Уборка брошенных комнат
+setInterval(() => {
+  const now = Date.now();
+  for (const room of [...rooms.values()]) {
+    if (roomSockets(room).length) { room.emptySince = null; continue; }
+    if (!room.emptySince) room.emptySince = now;
+    if (now - room.emptySince > (room.phase === 'lobby' ? LOBBY_IDLE_MS : GAME_IDLE_MS)) deleteRoom(room);
+  }
+}, 30000).unref();
 
 // ---------------------------------------------------------------- Сокеты
 io.on('connection', (socket) => {
-  socket.on('join', (d) => {
+  const cur = () => {
+    const info = socketsInfo.get(socket.id);
+    return info && info.code ? rooms.get(info.code) || null : null;
+  };
+
+  socket.on('hello', (d) => {
     const token = String((d && d.token) || '').slice(0, 64);
     if (!token) return;
-    const name = cleanName(d && d.name);
-    socketsInfo.set(socket.id, { token, name });
-    const side = sideOfToken(token);
-    if (side) {
-      for (const s of SIDES) {
-        const sl = room.slots[s];
-        if (sl && sl.token === token) {
-          sl.socketId = socket.id;
-          sl.connected = true;
-          clearTimeout(sl.graceTimer);
-          sl.graceTimer = null;
-          if (room.phase === 'lobby') sl.name = name;
-        }
-      }
-    } else if (room.phase === 'lobby') {
-      const free = SIDES.find((s) => !room.slots[s]);
-      if (free) room.slots[free] = { token, name, ready: false, connected: true, socketId: socket.id, graceTimer: null };
-    }
-    emitLobby();
-    if (room.game) {
-      if (side) broadcastState([]);
-      else socket.emit('state', { state: stateFor(viewerOf(socket)), events: [] });
-    }
+    socketsInfo.set(socket.id, { token, name: cleanName(d && d.name), code: null });
+    const code = normCode(d && d.code);
+    if (!code) return socket.emit('menu');
+    const room = rooms.get(code);
+    if (room) joinRoom(socket, room);
+    else socket.emit('roomGone', code);
   });
+
+  socket.on('listRooms', (cb) => { if (typeof cb === 'function') cb(publicRooms()); });
+
+  socket.on('createRoom', (cb) => {
+    if (!socketsInfo.has(socket.id)) return;
+    if (rooms.size >= MAX_ROOMS) return socket.emit('errorMsg', 'Сервер переполнен, попробуйте позже');
+    const room = createRoom(false);
+    joinRoom(socket, room);
+    console.log(`[room] ${room.code} создана (комнат: ${rooms.size})`);
+    if (typeof cb === 'function') cb({ code: room.code });
+  });
+
+  socket.on('joinRoom', (c, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    if (!socketsInfo.has(socket.id)) return reply({ error: 'Нет связи' });
+    const code = normCode(c);
+    const room = code && rooms.get(code);
+    if (!room) return reply({ error: 'Комната не найдена' });
+    joinRoom(socket, room);
+    reply({ code: room.code });
+  });
+
+  socket.on('leaveRoom', () => { leaveRoom(socket); socket.emit('menu'); });
 
   socket.on('setName', (n) => {
     const info = socketsInfo.get(socket.id);
     if (!info) return;
     info.name = cleanName(n);
-    if (room.phase !== 'lobby') return;
+    const room = cur();
+    if (!room || room.phase !== 'lobby') return;
     for (const s of SIDES) if (room.slots[s] && room.slots[s].token === info.token) room.slots[s].name = info.name;
-    emitLobby();
+    emitLobby(room);
   });
 
   socket.on('ready', () => {
-    if (room.phase !== 'lobby') return;
-    const side = viewerOf(socket);
+    const room = cur();
+    if (!room || room.phase !== 'lobby') return;
+    const side = viewerOf(socket, room);
     if (side !== 'blue' && side !== 'red') return;
     room.slots[side].ready = !room.slots[side].ready;
-    emitLobby();
+    emitLobby(room);
     const b = room.slots.blue, r = room.slots.red;
-    if (b && r && b.ready && r.ready && b.connected && r.connected) startGame(false);
+    if (b && r && b.ready && r.ready && b.connected && r.connected) startGame(room, false);
   });
 
+  // Тренировка: отдельная приватная комната, обе команды у одного игрока
   socket.on('solo', () => {
     const info = socketsInfo.get(socket.id);
     if (!info) return;
-    if (room.phase !== 'lobby') return socket.emit('errorMsg', 'Матч уже идёт. Сначала сбросьте комнату.');
-    const busy = SIDES.find((s) => room.slots[s] && room.slots[s].token !== info.token && room.slots[s].connected);
-    if (busy) return socket.emit('errorMsg', 'В лобби уже есть второй игрок. Играйте вдвоём или сбросьте комнату.');
-    for (const s of SIDES) if (room.slots[s]) clearTimeout(room.slots[s].graceTimer);
+    if (rooms.size >= MAX_ROOMS) return socket.emit('errorMsg', 'Сервер переполнен, попробуйте позже');
+    if (info.code) leaveRoom(socket);
+    const room = createRoom(true);
+    info.code = room.code;
+    socket.join('r:' + room.code);
     for (const s of SIDES) {
       room.slots[s] = { token: info.token, name: info.name, ready: true, connected: true, socketId: socket.id, graceTimer: null };
     }
-    startGame(true);
-  });
-
-  socket.on('resetRoom', () => {
-    if (!socketsInfo.has(socket.id)) return;
-    resetRoom();
+    startGame(room, true);
   });
 
   socket.on('action', (a) => {
-    if (room.phase !== 'game' || !room.game || !a || typeof a !== 'object') return;
+    const room = cur();
+    if (!room || room.phase !== 'game' || !room.game || !a || typeof a !== 'object') return;
     const g = room.game;
-    const viewer = viewerOf(socket);
+    const viewer = viewerOf(socket, room);
     if (!viewer) return socket.emit('errorMsg', 'Вы наблюдатель');
     if (viewer !== 'both' && viewer !== g.turn) return socket.emit('errorMsg', 'Сейчас не ваш ход');
     const { err, events } = performAction(g, g.turn, a);
     if (err) return socket.emit('errorMsg', err);
-    broadcastState(events);
+    broadcastState(room, events);
   });
 
   socket.on('surrender', () => {
-    if (room.phase !== 'game' || !room.game) return;
-    const viewer = viewerOf(socket);
+    const room = cur();
+    if (!room) return;
+    const viewer = viewerOf(socket, room);
     if (!viewer) return;
-    const g = room.game;
-    const loser = viewer === 'both' ? g.turn : viewer;
-    g.events = [];
-    g.winner = R.other(loser);
-    finishGame(g, loser);
-    const events = g.events;
-    g.events = null;
-    broadcastState(events);
+    surrender(room, viewer === 'both' ? room.game && room.game.turn : viewer);
   });
 
   socket.on('rematch', () => {
-    if (room.phase !== 'over') return;
-    const viewer = viewerOf(socket);
+    const room = cur();
+    if (!room || room.phase !== 'over') return;
+    const viewer = viewerOf(socket, room);
     if (!viewer) return;
-    if (viewer === 'both') return startGame(true);
+    if (viewer === 'both') return startGame(room, true);
     room.rematch[viewer] = true;
-    if (room.rematch.blue && room.rematch.red) startGame(false);
-    else broadcastState([]);
+    if (room.rematch.blue && room.rematch.red) startGame(room, false);
+    else broadcastState(room, []);
   });
 
   socket.on('toLobby', () => {
-    const viewer = viewerOf(socket);
+    const room = cur();
+    if (!room) return;
+    const viewer = viewerOf(socket, room);
     if (!viewer || room.phase === 'lobby') return;
-    if (room.solo) return resetRoom();
+    if (room.solo) { leaveRoom(socket); return socket.emit('menu'); }
     clearTimeout(room.turnTimer);
     room.phase = 'lobby';
     room.game = null;
@@ -710,11 +809,13 @@ io.on('connection', (socket) => {
       if (!room.slots[s].connected) room.slots[s] = null;
       else room.slots[s].ready = false;
     }
-    emitLobby();
+    emitLobby(room);
   });
 
   socket.on('disconnect', () => {
+    const room = cur();
     socketsInfo.delete(socket.id);
+    if (!room) return;
     for (const s of SIDES) {
       const sl = room.slots[s];
       if (!sl || sl.socketId !== socket.id) continue;
@@ -724,29 +825,25 @@ io.on('connection', (socket) => {
         sl.ready = false;
         clearTimeout(sl.graceTimer);
         sl.graceTimer = setTimeout(() => {
-          if (room.slots[s] === sl && !sl.connected) { room.slots[s] = null; emitLobby(); }
+          if (room.slots[s] === sl && !sl.connected) { room.slots[s] = null; emitLobby(room); }
         }, LOBBY_GRACE_MS);
       }
     }
-    emitLobby();
-    if (room.game) broadcastState([]);
+    if (!roomSockets(room).length) room.emptySince = Date.now();
+    emitLobby(room);
+    if (room.game) broadcastState(room, []);
   });
 });
 
+// ---------------------------------------------------------------- Не даём бесплатному Render «уснуть»
+// Render сам задаёт RENDER_EXTERNAL_URL. Отключить: переменная окружения KEEP_AWAKE=0.
+const SELF_URL = process.env.RENDER_EXTERNAL_URL;
+if (SELF_URL && process.env.KEEP_AWAKE !== '0' && typeof fetch === 'function') {
+  setInterval(() => { fetch(SELF_URL + '/health').catch(() => {}); }, 10 * 60 * 1000).unref();
+}
+
 server.listen(PORT, '0.0.0.0', () => {
-  const W = 58;
-  const title = '   TACTICAL LOOT CHESS — сервер запущен';
-  console.log(`\n╔${'═'.repeat(W)}╗`);
-  console.log(`║${title.padEnd(W)}║`);
-  console.log(`╚${'═'.repeat(W)}╝`);
-  console.log(`\n  На этом компьютере:   http://localhost:${PORT}`);
-  if (LAN.length) {
-    console.log('\n  Для второго игрока в локальной сети (Wi-Fi / Ethernet):');
-    for (const a of LAN) console.log(`    ➜  http://${a.address}:${PORT}    (${a.name})`);
-  } else {
-    console.log('\n  ⚠ Сетевые IPv4-интерфейсы не найдены — доступен только localhost.');
-  }
-  console.log('\n  Остановить сервер: Ctrl+C\n');
+  console.log(`\n  TACTICAL LOOT CHESS — сервер запущен: http://localhost:${PORT}\n`);
 });
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') console.error(`Порт ${PORT} занят. Запустите с другим портом: PORT=3001 node server.js`);

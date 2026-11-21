@@ -25,6 +25,45 @@ const Sound = (() => {
     return ac;
   }
 
+  // ---- фоновая музыка меню: тихий синт-пад + арпеджио (Am – F – C – G), генерируется на лету
+  const PROG = [[220, 261.63, 329.63], [174.61, 220, 261.63], [130.81, 164.81, 196], [196, 246.94, 293.66]];
+  const BAR = 4;
+  const ARP = [0, 1, 2, 1, 0, 2, 1, 2];
+  let wantAmb = false, ambG = null, ambNext = 0, ambBarNo = 0, ambTimer = null;
+  function ambVoice(type, f, t, dur, vol, attack, flt) {
+    const osc = ac.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(f, t);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + attack);
+    g.gain.setValueAtTime(vol, t + Math.max(attack, dur - 0.9));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(flt || ambG);
+    osc.start(t); osc.stop(t + dur + 0.05);
+  }
+  function ambBar(t) {
+    const chord = PROG[ambBarNo++ % PROG.length];
+    const flt = ac.createBiquadFilter();
+    flt.type = 'lowpass'; flt.frequency.value = 900; flt.Q.value = 0.5;
+    flt.connect(ambG);
+    for (const f of chord) {
+      ambVoice('triangle', f / 2, t, BAR + 0.8, 0.035, 1.2, flt);
+      ambVoice('sawtooth', f / 2 * 1.004, t, BAR + 0.8, 0.012, 1.4, flt);
+    }
+    ambVoice('sine', chord[0] / 4, t, BAR, 0.08, 0.05);
+    ARP.forEach((n, i) => {
+      if (Math.random() < 0.2) return;
+      ambVoice('square', chord[n] * 2, t + i * (BAR / ARP.length), 0.22, 0.012, 0.01);
+    });
+  }
+  function ambTick() {
+    if (!wantAmb || !ac || !ambG || ac.state !== 'running' || muted) return;
+    if (ambNext < ac.currentTime) ambNext = ac.currentTime + 0.05;
+    if (ac.currentTime + 0.4 >= ambNext) { ambBar(ambNext); ambNext += BAR; }
+  }
+  let lastHover = 0;
+
   function env(g, t, vol, attack, dur) {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t + attack);
@@ -75,8 +114,51 @@ const Sound = (() => {
     }
   };
 
-  return {
-    unlock: ensure,
+  const api = {
+    unlock() { const a = ensure(); if (wantAmb && !ambTimer) api.ambientStart(); ambTick(); return a; },
+    ambientStart() {
+      wantAmb = true;
+      if (!ac) return; // запустится после первого касания/клика (политика автозапуска звука)
+      if (!ambG) { ambG = ac.createGain(); ambG.gain.value = 0.0001; ambG.connect(master); }
+      ambG.gain.cancelScheduledValues(ac.currentTime);
+      ambG.gain.setValueAtTime(Math.max(0.0001, ambG.gain.value), ac.currentTime);
+      ambG.gain.exponentialRampToValueAtTime(1, ac.currentTime + 1.5);
+      if (!ambTimer) ambTimer = setInterval(ambTick, 400);
+      ambTick();
+    },
+    ambientStop() {
+      wantAmb = false;
+      if (!ac || !ambG) return;
+      ambG.gain.cancelScheduledValues(ac.currentTime);
+      ambG.gain.setValueAtTime(Math.max(0.0001, ambG.gain.value), ac.currentTime);
+      ambG.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.8);
+      ambNext = 0;
+    },
+    hover() {
+      const n = performance.now();
+      if (n - lastHover < 60) return;
+      lastHover = n;
+      tone({ type: 'square', f: 1760, dur: 0.018, vol: 0.025 });
+    },
+    click() { tone({ type: 'square', f: 520, f2: 880, dur: 0.05, vol: 0.08 }); },
+    join() { [392, 523, 659].forEach((f, i) => tone({ type: 'triangle', f, dur: 0.1, vol: 0.12, delay: i * 0.07 })); },
+    leave() { [523, 392, 262].forEach((f, i) => tone({ type: 'triangle', f, dur: 0.1, vol: 0.1, delay: i * 0.07 })); },
+    ready() {
+      tone({ type: 'square', f: 880, dur: 0.06, vol: 0.1 });
+      tone({ type: 'square', f: 1320, dur: 0.12, vol: 0.1, delay: 0.07 });
+      noise({ f: 5000, dur: 0.05, vol: 0.06, filter: 'highpass' });
+    },
+    unready() { tone({ type: 'square', f: 660, f2: 330, dur: 0.1, vol: 0.08 }); },
+    count() {
+      tone({ type: 'square', f: 440, dur: 0.12, vol: 0.14 });
+      tone({ type: 'triangle', f: 220, dur: 0.2, vol: 0.12 });
+      noise({ f: 300, f2: 60, dur: 0.25, vol: 0.12 });
+    },
+    go() {
+      notes([[523, 0.07], [659, 0.07], [784, 0.07], [1047, 0.3]], 'square', 0.1, 0.005);
+      noise({ f: 2500, f2: 80, dur: 0.6, vol: 0.25 });
+      tone({ type: 'sine', f: 110, f2: 40, dur: 0.5, vol: 0.3 });
+    },
     select() { tone({ f: 660, f2: 990, dur: 0.06, vol: 0.1 }); },
     step() {
       noise({ f: 1100, dur: 0.045, vol: 0.12, filter: 'bandpass', q: 3 });
@@ -153,4 +235,5 @@ const Sound = (() => {
     },
     isMuted() { return muted; },
   };
+  return api;
 })();

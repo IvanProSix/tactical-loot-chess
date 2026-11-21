@@ -10,6 +10,8 @@
 
   Sprites.init();
   const socket = io();
+  MenuBG.init($('menuBg'));
+  if (window.innerWidth < 600) { const rd = document.querySelector('.rules'); if (rd) rd.removeAttribute('open'); }
 
   // ------------------------------------------------------------ идентичность (sessionStorage — переживает F5, своя у каждой вкладки)
   function rid() {
@@ -46,6 +48,12 @@
   let overHidden = false;
   let renderedLogKey = '';
   let flipped = false;
+  let roomCode = normCode(new URLSearchParams(location.search).get('room'));
+  let prevLobby = null;
+  let screenNow = null;
+  let countdownTimer = null;
+  let countdownActive = false;
+  let roomListTimer = null;
 
   // эффекты
   const anims = new Map();
@@ -113,29 +121,50 @@
     if (view.you === 'both') return view.turn;
     return view.you === view.turn ? view.turn : null;
   }
-  const canInput = () => !!actingSide() && !animating && !pending;
+  const canInput = () => !!actingSide() && !animating && !pending && !countdownActive;
   function selUnit() {
     if (!view || !selectedId) return null;
     return view.units.find((u) => u.id === selectedId && u.alive) || null;
   }
 
   // ------------------------------------------------------------ сеть
+  function normCode(c) {
+    const v = String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+    return v.length === 4 ? v : null;
+  }
+  function setRoomUrl(code) {
+    const url = code ? `${location.pathname}?room=${code}` : location.pathname;
+    if (location.pathname + location.search !== url) history.replaceState(null, '', url);
+  }
+  const inviteUrl = () => `${location.origin}${location.pathname}?room=${roomCode}`;
+
   socket.on('connect', () => {
     $('connState').classList.add('hidden');
-    socket.emit('join', { token, name: myName });
+    socket.emit('hello', { token, name: myName, code: roomCode });
   });
   socket.on('disconnect', () => $('connState').classList.remove('hidden'));
-  socket.on('roomReset', () => {
-    resetClientGame();
-    toast('Комната сброшена');
-    socket.emit('join', { token, name: myName });
+  socket.on('menu', () => goMenu());
+  socket.on('roomGone', (code) => {
+    toast(`Комната ${code} не найдена или уже закрыта`, 'err');
+    goMenu();
   });
   socket.on('lobby', (l) => {
+    const sameRoom = lobby && lobby.code === l.code;
+    prevLobby = sameRoom ? lobby : null;
     lobby = l;
+    roomCode = l.code;
+    setRoomUrl(l.code);
     if (l.phase === 'lobby') resetClientGame();
     renderLobby();
     updateScreens();
   });
+  function goMenu() {
+    lobby = null; prevLobby = null; roomCode = null;
+    setRoomUrl(null);
+    resetClientGame();
+    updateScreens();
+    refreshRooms();
+  }
   socket.on('state', (msg) => enqueue(msg));
   socket.on('errorMsg', (m) => {
     setPending(false);
@@ -148,6 +177,7 @@
     selectedId = null; mode = 'normal'; overShownFor = null;
     anims.clear(); projectiles.length = 0; booms.length = 0; particles.length = 0; floats.length = 0;
     $('overlay').classList.add('hidden');
+    stopCountdown();
     setPending(false);
     updateScreens();
   }
@@ -169,7 +199,7 @@
     const s = msg.state;
     if (!s) return;
     if (!view || s.gameId !== gameId) {
-      const isNew = gameId !== null || !view;
+      const isNew = true;
       queue.length = 0;
       gameId = s.gameId;
       state = s;
@@ -180,8 +210,8 @@
       overHidden = false;
       onSynced();
       if (isNew && s.phase === 'game' && s.turnNo === 1 && s.activated.length === 0) {
-        showBanner('БОЙ НАЧАЛСЯ!', 'neutral');
-        Sound.turn();
+        if (s.turnLeftMs > R.TURN_SECONDS * 1000 + 2500) startCountdown();
+        else { showBanner('БОЙ НАЧАЛСЯ!', 'neutral'); Sound.turn(); }
       }
       return;
     }
@@ -490,38 +520,155 @@
   }
 
   function updateScreens() {
-    const inGame = !!(lobby && lobby.phase !== 'lobby' && view);
-    $('lobby').classList.toggle('hidden', inGame);
-    $('game').classList.toggle('hidden', !inGame);
-    if (inGame) resize();
+    const scr = !lobby ? 'menu' : (lobby.phase !== 'lobby' && view ? 'game' : 'lobby');
+    for (const id of ['menu', 'lobby', 'game']) $(id).classList.toggle('hidden', id !== scr);
+    if (scr === screenNow) { if (scr === 'game') resize(); return; }
+    screenNow = scr;
+    const el = $(scr);
+    el.classList.remove('screen-in'); void el.offsetWidth; el.classList.add('screen-in');
+    if (scr === 'game') {
+      MenuBG.stop(); Sound.ambientStop(); resize();
+    } else {
+      MenuBG.start(); Sound.ambientStart();
+    }
+    clearInterval(roomListTimer);
+    if (scr === 'menu') {
+      renderMenu();
+      refreshRooms();
+      roomListTimer = setInterval(refreshRooms, 4000);
+      typeSubtitle();
+    }
+  }
+
+  // ------------------------------------------------------------ главное меню
+  const SUBTITLE = '> пошаговая тактика · лут · оружие · онлайн';
+  let typeTimer = null;
+  function typeSubtitle() {
+    const el = $('typeLine');
+    clearInterval(typeTimer);
+    let i = 0;
+    el.textContent = '';
+    typeTimer = setInterval(() => {
+      el.textContent = SUBTITLE.slice(0, ++i);
+      if (i >= SUBTITLE.length) clearInterval(typeTimer);
+    }, 35);
+  }
+  function renderMenu() {
+    const ni = $('nameInput');
+    if (document.activeElement !== ni) ni.value = myName;
+  }
+  function refreshRooms() {
+    if (!socket.connected || screenNow !== 'menu') return;
+    socket.emit('listRooms', (d) => {
+      if (!d || screenNow !== 'menu') return;
+      const ul = $('roomList');
+      const sig = JSON.stringify(d.open);
+      if (ul.dataset.sig !== sig) {
+        ul.dataset.sig = sig;
+        ul.innerHTML = '';
+        if (!d.open.length) {
+          const li = document.createElement('li');
+          li.className = 'empty';
+          li.textContent = 'Пока пусто. Создайте комнату и отправьте ссылку другу — или зайдите по коду.';
+          ul.appendChild(li);
+        }
+        for (const r of d.open) {
+          const li = document.createElement('li');
+          const c = document.createElement('span'); c.className = 'rc'; c.textContent = r.code;
+          const h = document.createElement('span'); h.className = 'rh'; h.textContent = r.host;
+          const b = document.createElement('button'); b.className = 'btn small'; b.textContent = 'Войти';
+          b.onclick = () => joinByCode(r.code);
+          li.append(c, h, b);
+          ul.appendChild(li);
+        }
+      }
+      $('onlineInfo').innerHTML = `<span class="dot"></span>Онлайн: ${d.online | 0} · идёт матчей: ${d.games | 0}`;
+    });
+  }
+  function joinByCode(code) {
+    const c = normCode(code);
+    if (!c) { toast('Код комнаты — 4 символа', 'err'); Sound.error(); return; }
+    Sound.unlock();
+    socket.emit('joinRoom', c, (r) => {
+      if (r && r.error) { toast(r.error, 'err'); Sound.error(); }
+    });
+  }
+
+  // ------------------------------------------------------------ отсчёт 3-2-1 перед боем
+  function startCountdown() {
+    stopCountdown();
+    countdownActive = true;
+    const box = $('countdown'), num = $('countNum');
+    box.classList.remove('hidden', 'fade');
+    const steps = ['3', '2', '1', 'В БОЙ!'];
+    let i = 0;
+    const next = () => {
+      if (i >= steps.length) {
+        box.classList.add('fade');
+        countdownTimer = setTimeout(() => { box.classList.add('hidden'); countdownActive = false; renderHUD(); }, 350);
+        return;
+      }
+      const last = i === steps.length - 1;
+      num.textContent = steps[i];
+      num.className = 'count-num';
+      void num.offsetWidth;
+      num.className = 'count-num tick' + (last ? ' go' : '');
+      if (last) { Sound.go(); shake = Math.max(shake, 4); } else Sound.count();
+      i++;
+      countdownTimer = setTimeout(next, last ? 700 : 800);
+    };
+    next();
+    renderHUD();
+  }
+  function stopCountdown() {
+    clearTimeout(countdownTimer);
+    countdownActive = false;
+    $('countdown').classList.add('hidden');
   }
 
   function renderLobby() {
     if (!lobby) return;
-    const ni = $('nameInput');
-    if (document.activeElement !== ni) ni.value = myName;
+    $('roomCode').textContent = lobby.code;
     for (const side of ['blue', 'red']) {
       const el = $(side === 'blue' ? 'slotBlue' : 'slotRed');
       const s = lobby.slots[side];
+      const p = prevLobby ? prevLobby.slots[side] : undefined;
+      const mine = lobby.you === side || lobby.you === 'both';
       el.innerHTML = '';
       const title = document.createElement('div');
       title.className = 'slot-title';
       title.textContent = side === 'blue' ? '■ СИНИЕ' : '■ КРАСНЫЕ';
-      if (lobby.you === side || (lobby.you === 'both')) {
+      if (mine) {
         const t = document.createElement('span');
         t.className = 'you-tag'; t.textContent = 'ВЫ';
         title.appendChild(t);
       }
       const nm = document.createElement('div');
       nm.className = 'slot-name';
-      nm.textContent = s ? s.name : '—';
+      nm.textContent = s ? s.name : 'Ожидание…';
       const st = document.createElement('div');
       st.className = 'slot-status';
       if (!s) { st.textContent = '○ Свободно'; st.classList.add('st-free'); }
       else if (!s.connected) { st.textContent = '✖ Отключён (ожидание…)'; st.classList.add('st-off'); }
       else if (s.ready) { st.textContent = '✔ ГОТОВ'; st.classList.add('st-ready'); }
-      else { st.textContent = '… Ожидание'; st.classList.add('st-wait'); }
+      else { st.textContent = '… Не готов'; st.classList.add('st-wait'); }
       el.append(title, nm, st);
+      if (s) {
+        const cv = document.createElement('canvas');
+        cv.className = 'slot-sprite';
+        drawSpriteTo(cv, 'commander', side, 48);
+        el.appendChild(cv);
+      }
+      el.classList.toggle('is-free', !s);
+      el.classList.toggle('is-ready', !!(s && s.ready));
+      // реакции на изменения
+      const anim = (cls) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
+      if (p !== undefined) {
+        if (!p && s) { anim('joined'); if (!mine) { Sound.join(); toast(`${s.name} заходит в комнату`); } }
+        else if (p && !s) { if (!mine) { Sound.leave(); toast(`${p.name} покидает комнату`); } }
+        else if (p && s && !p.ready && s.ready) { anim('readied'); Sound.ready(); }
+        else if (p && s && p.ready && !s.ready) Sound.unready();
+      } else if (s) anim('joined');
     }
     const seated = lobby.you === 'blue' || lobby.you === 'red';
     const mySlot = seated ? lobby.slots[lobby.you] : null;
@@ -529,25 +676,15 @@
     btn.disabled = !seated || lobby.phase !== 'lobby';
     btn.textContent = mySlot && mySlot.ready ? 'Отменить готовность' : 'Готов';
     btn.classList.toggle('active', !!(mySlot && mySlot.ready));
-    $('btnSolo').disabled = lobby.phase !== 'lobby';
     let msg = '';
     const other = seated ? lobby.slots[lobby.you === 'blue' ? 'red' : 'blue'] : null;
-    if (lobby.phase !== 'lobby' && !lobby.you) msg = 'Идёт матч — вы в режиме наблюдателя. Если сессия зависла, нажмите «Сбросить комнату».';
-    else if (!lobby.you) msg = 'Комната заполнена. Если сессия зависла — нажмите «Сбросить комнату».';
-    else if (seated && !other) msg = 'Ожидание второго игрока… Отправьте ему ссылку ниже — или нажмите «Тест на 1 ПК».';
+    if (lobby.phase !== 'lobby' && !lobby.you) msg = 'Идёт матч — вы в режиме наблюдателя.';
+    else if (!lobby.you) msg = 'Комната заполнена — вы наблюдатель.';
+    else if (seated && !other) msg = 'Ждём второго игрока… Отправьте другу ссылку или код комнаты.';
     else if (seated && mySlot && !mySlot.ready) msg = 'Нажмите «Готов», чтобы начать.';
     else if (seated && other && !other.ready) msg = 'Ждём готовности соперника…';
+    else if (seated) msg = 'Оба готовы — начинаем!';
     $('lobbyMsg').textContent = msg;
-    const ul = $('urlList');
-    ul.innerHTML = '';
-    const urls = lobby.urls && lobby.urls.length ? lobby.urls : [location.origin];
-    for (const u of urls) {
-      const li = document.createElement('li');
-      const a = document.createElement('a');
-      a.href = u; a.textContent = u; a.target = '_blank'; a.rel = 'noopener';
-      li.appendChild(a);
-      ul.appendChild(li);
-    }
   }
 
   function renderLootInfo() {
@@ -616,7 +753,7 @@
     renderMoves();
     $('btnSurrender').disabled = !view.you || !!view.winner || state.phase !== 'game';
     $('btnSurrender').classList.toggle('hidden', !view.you);
-    $('btnResetGame').classList.toggle('hidden', !!view.you);
+    $('btnLeaveGame').classList.toggle('hidden', !!view.you);
 
     const w = $('warn');
     if (view.you === 'blue' || view.you === 'red') {
@@ -762,6 +899,7 @@
       rb.disabled = mine;
     } else { rb.textContent = 'Реванш'; rb.disabled = true; }
     $('btnToLobby').disabled = !view.you;
+    $('btnToLobby').classList.toggle('hidden', view.you === 'both');
     $('overSub').textContent = sub;
     if (overShownFor !== state.gameId) {
       overShownFor = state.gameId;
@@ -857,17 +995,36 @@
   }
   $('btnEndTurn').onclick = endTurn;
   $('btnSurrender').onclick = () => { if (confirm('Сдаться и завершить матч?')) socket.emit('surrender'); };
-  $('btnResetGame').onclick = () => {
-    if (confirm('Сбросить комнату? Текущий матч будет завершён для всех игроков.')) socket.emit('resetRoom');
-  };
+  $('btnLeaveGame').onclick = () => socket.emit('leaveRoom');
+  $('btnCancel').onclick = () => cancel();
   $('btnRematch').onclick = () => { Sound.unlock(); socket.emit('rematch'); };
   $('btnToLobby').onclick = () => socket.emit('toLobby');
+  $('btnToMenu').onclick = () => socket.emit('leaveRoom');
   $('btnHideOver').onclick = () => { overHidden = true; $('overlay').classList.add('hidden'); toast('Нажмите Esc, чтобы вернуть экран победы'); };
-  $('btnReady').onclick = () => { Sound.unlock(); Sound.select(); socket.emit('ready'); };
+  $('btnReady').onclick = () => { Sound.unlock(); socket.emit('ready'); };
   $('btnSolo').onclick = () => { Sound.unlock(); socket.emit('solo'); };
-  $('btnReset').onclick = () => {
-    if (confirm('Сбросить комнату? Текущий матч и лобби будут очищены для всех игроков.')) socket.emit('resetRoom');
+  $('btnCreate').onclick = () => { Sound.unlock(); socket.emit('createRoom'); };
+  $('btnJoin').onclick = () => joinByCode($('codeInput').value);
+  $('codeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinByCode(e.target.value); });
+  $('codeInput').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4); });
+  $('btnLeave').onclick = () => socket.emit('leaveRoom');
+  $('btnCopy').onclick = async () => {
+    const url = inviteUrl();
+    if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+      try { await navigator.share({ title: 'Tactical Loot Chess', text: `Заходи в комнату ${roomCode}!`, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    try { await navigator.clipboard.writeText(url); toast('Ссылка скопирована — отправьте её другу'); Sound.ready(); }
+    catch (e) { window.prompt('Скопируйте ссылку:', url); }
   };
+  // звуки интерфейса меню: наведение и нажатие
+  document.addEventListener('pointerover', (e) => {
+    const b = e.target.closest && e.target.closest('.btn');
+    if (b && !b.disabled && e.pointerType === 'mouse' && !b.contains(e.relatedTarget)) Sound.hover();
+  });
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('.menu-screen .btn');
+    if (b && !b.disabled && b.id !== 'btnReady' && b.id !== 'btnCopy') Sound.click();
+  });
   const muteBtn = $('btnMute');
   const syncMute = () => { muteBtn.textContent = Sound.isMuted() ? '🔇' : '🔊'; };
   muteBtn.onclick = () => { Sound.toggleMute(); syncMute(); };
@@ -1332,8 +1489,8 @@
     const left = Math.max(0, deadline - now);
     const sec = Math.ceil(left / 1000);
     if (el.textContent !== String(sec)) {
-      el.textContent = String(sec);
-      $('timerFill').style.width = (left / (R.TURN_SECONDS * 1000)) * 100 + '%';
+      el.textContent = String(Math.min(sec, R.TURN_SECONDS));
+      $('timerFill').style.width = Math.min(100, (left / (R.TURN_SECONDS * 1000)) * 100) + '%';
     }
     el.classList.toggle('warn', sec <= 10);
     if (sec <= 5 && sec > 0 && sec !== lastTickSec && actingSide()) Sound.tick();
@@ -1341,4 +1498,5 @@
   }
 
   requestAnimationFrame(frame);
+  updateScreens(); // меню с живым фоном видно сразу, пока идёт подключение
 })();

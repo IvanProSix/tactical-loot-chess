@@ -2,7 +2,8 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#070a10">
   <title>Tactical Loot Chess</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -11,15 +12,61 @@
   <button id="btnMute" class="mute-btn" title="Звук (M)">🔊</button>
   <div id="connState" class="conn-state hidden">Нет связи с сервером… переподключение</div>
 
-  <!-- ЛОББИ -->
-  <section id="lobby" class="screen">
-    <div class="lobby-box panel">
-      <h1 class="logo">TACTICAL<span>LOOT CHESS</span></h1>
-      <p class="subtitle">&gt; пошаговая тактика · лут · оружие · LAN_</p>
+  <canvas id="menuBg" class="menu-bg" aria-hidden="true"></canvas>
 
-      <label class="field">ПОЗЫВНОЙ
+  <!-- ГЛАВНОЕ МЕНЮ -->
+  <section id="menu" class="screen menu-screen">
+    <div class="menu-box panel enter">
+      <h1 class="logo" data-text="TACTICAL"><span class="logo-main glitch" data-text="TACTICAL">TACTICAL</span><span class="logo-sub">LOOT CHESS</span></h1>
+      <p class="subtitle"><span id="typeLine"></span><span class="caret">_</span></p>
+
+      <label class="field enter" style="--d:.35s">ПОЗЫВНОЙ
         <input id="nameInput" maxlength="16" autocomplete="off" spellcheck="false">
       </label>
+
+      <div class="menu-actions enter" style="--d:.5s">
+        <button id="btnCreate" class="btn primary big">▶ Создать комнату</button>
+        <div class="join-row">
+          <input id="codeInput" class="code-input" maxlength="4" placeholder="КОД" autocomplete="off" spellcheck="false" autocapitalize="characters" inputmode="text">
+          <button id="btnJoin" class="btn">Войти</button>
+        </div>
+        <button id="btnSolo" class="btn">Тренировка на одном экране</button>
+      </div>
+
+      <div class="menu-cols enter" style="--d:.65s">
+        <div class="open-rooms">
+          <h3>// ОТКРЫТЫЕ КОМНАТЫ</h3>
+          <ul id="roomList" class="room-list"></ul>
+          <div id="onlineInfo" class="online-info"></div>
+        </div>
+        <details class="rules" open>
+          <summary><h3>// ПРАВИЛА</h3></summary>
+          <ul>
+            <li>Цель — уничтожить вражеского <b>Командира</b>.</li>
+            <li>За ход можно задействовать <b>2 разных юнита</b>; у каждого — <b>1 Движение</b> и <b>1 Действие</b>.</li>
+            <li>Стены блокируют движение и линию огня.</li>
+            <li>Ящики с лутом падают каждые 2 раунда, а чем дольше матч — тем чаще и больше.</li>
+            <li>Редкость: <b style="color:#cbd5e1">Обычный</b> · <b style="color:#38bdf8">Редкий</b> · <b style="color:#c084fc">Эпический</b> · <b style="color:#f59e0b">Легендарный</b> · <b style="color:#f43f5e">Мифический</b>. Клевер 🍀 на несколько ходов повышает удачу команды (пока действует — повторно не выпадает).</li>
+            <li>ПК: ЛКМ — выбор / ход / атака, ПКМ или Esc — отмена, Enter — конец хода, M — звук. Телефон: касание — выбор / ход / атака, кнопка «Отмена» — сброс выбора.</li>
+          </ul>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- КОМНАТА (ЛОББИ) -->
+  <section id="lobby" class="screen menu-screen hidden">
+    <div class="lobby-box panel enter">
+      <div class="room-head">
+        <div>
+          <div class="room-label">КОМНАТА</div>
+          <div id="roomCode" class="room-code">----</div>
+        </div>
+        <div class="room-btns">
+          <button id="btnCopy" class="btn primary">⧉ Скопировать ссылку</button>
+          <button id="btnLeave" class="btn small">← Выйти</button>
+        </div>
+      </div>
 
       <div class="slots">
         <div class="slot blue" id="slotBlue"></div>
@@ -29,30 +76,13 @@
       <div id="lobbyMsg" class="lobby-msg"></div>
 
       <div class="btn-row">
-        <button id="btnReady" class="btn primary">Готов</button>
-        <button id="btnSolo" class="btn">Тест на одном экране (1 ПК)</button>
-        <button id="btnReset" class="btn danger">Сбросить комнату</button>
-      </div>
-
-      <div class="lobby-cols">
-        <div class="links">
-          <h3>// ПОДКЛЮЧЕНИЕ ПО LAN</h3>
-          <ul id="urlList"></ul>
-        </div>
-        <div class="rules">
-          <h3>// ПРАВИЛА</h3>
-          <ul>
-            <li>Цель — уничтожить вражеского <b>Командира</b>.</li>
-            <li>За ход можно задействовать <b>2 разных юнита</b>; у каждого — <b>1 Движение</b> и <b>1 Действие</b>.</li>
-            <li>Стены блокируют движение и линию огня.</li>
-            <li>Ящики с лутом падают каждые 2 раунда, а чем дольше матч — тем чаще и больше.</li>
-            <li>Редкость: <b style="color:#cbd5e1">Обычный</b> · <b style="color:#38bdf8">Редкий</b> · <b style="color:#c084fc">Эпический</b> · <b style="color:#f59e0b">Легендарный</b> · <b style="color:#f43f5e">Мифический</b>. Клевер 🍀 на несколько ходов повышает удачу команды (пока действует — повторно не выпадает).</li>
-            <li>ЛКМ — выбор / ход / атака, ПКМ или Esc — отмена, Enter — конец хода, M — звук.</li>
-          </ul>
-        </div>
+        <button id="btnReady" class="btn primary big">Готов</button>
       </div>
     </div>
   </section>
+
+  <!-- ОТСЧЁТ ПЕРЕД БОЕМ -->
+  <div id="countdown" class="countdown hidden"><div id="countNum" class="count-num"></div></div>
 
   <!-- ИГРА -->
   <section id="game" class="screen hidden">
@@ -72,9 +102,10 @@
       <div id="playersBox" class="players-box"></div>
       <div id="lootInfo" class="loot-info" title="Уровень лута растёт по ходу матча. Удача (🍀) повышает шанс редкого лута."></div>
       <div class="hud-buttons">
+        <button id="btnCancel" class="btn small" title="Отменить выбор (ПКМ / Esc)">✕ Отмена</button>
         <button id="btnEndTurn" class="btn primary">Завершить ход ⏎</button>
         <button id="btnSurrender" class="btn danger small">Сдаться</button>
-        <button id="btnResetGame" class="btn danger small hidden" title="Матч завис? Сбросить комнату для всех">Сбросить комнату</button>
+        <button id="btnLeaveGame" class="btn small hidden">← В меню</button>
       </div>
     </header>
     <main class="main">
@@ -101,7 +132,8 @@
       <p id="overSub"></p>
       <div class="btn-row">
         <button id="btnRematch" class="btn primary">Реванш</button>
-        <button id="btnToLobby" class="btn">В лобби</button>
+        <button id="btnToLobby" class="btn">В комнату</button>
+        <button id="btnToMenu" class="btn">В меню</button>
         <button id="btnHideOver" class="btn small">Посмотреть поле</button>
       </div>
     </div>
@@ -113,6 +145,7 @@
   <script src="shared.js"></script>
   <script src="sprites.js"></script>
   <script src="sound.js"></script>
+  <script src="menubg.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
