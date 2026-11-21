@@ -515,3 +515,9 @@ h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: 2px; color: var(--cyan); 
   .shop-item { flex-wrap: wrap; }
   .shop-item .btn, .shop-item .owned-tag { margin-left: auto; }
 }
+.admin-form { display: flex; gap: 8px; align-items: flex-end; max-width: 420px; }
+.admin-form .field { flex: 1; margin: 0; max-width: none; }
+.admin-info { margin: 10px 0 4px; padding: 8px; border: 1px dashed var(--line2); }
+.admin-info b { color: #fff; }
+.admin-row { justify-content: flex-start; align-items: center; }
+.admin-amount { flex: 0 1 130px; letter-spacing: 1px; font-size: 14px; padding: 6px 8px; }

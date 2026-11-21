@@ -921,6 +921,20 @@ io.on('connection', (socket) => {
     if (!r.error) refreshSeat(socket);
     return r;
   }));
+  socket.on('admin', async (d, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    const info = socketsInfo.get(socket.id);
+    const p = info && info.playerId ? A.peek(info.playerId) : null;
+    if (!p) return reply({ error: 'Войдите в аккаунт' });
+    let r;
+    try { r = await A.adminAction(p, d || {}); } catch (e) {
+      console.error('[admin]', e.message);
+      return reply({ error: 'Ошибка сервера' });
+    }
+    if (!r.error && r.target) emitProfile(r.target.id);
+    reply(r);
+  });
+
   socket.on('profile', (cb) => {
     const info = socketsInfo.get(socket.id);
     const p = info && info.playerId ? A.peek(info.playerId) : null;

@@ -303,14 +303,58 @@ function matchResult(winner, loser, rounds) {
   return { win, lose };
 }
 
+// ---------------------------------------------------------------- Админы
+// Список ников задаётся только переменной окружения ADMIN_NAMES (через запятую) — выдать права с сайта нельзя
+const ADMINS = new Set(String(process.env.ADMIN_NAMES || '').split(',').map((s) => cleanAccName(s).toLowerCase()).filter(Boolean));
+const isAdmin = (p) => !!p && ADMINS.has(p.nameLc);
+async function adminAction(admin, d) {
+  if (!isAdmin(admin)) return { error: 'Нет прав администратора' };
+  const name = cleanAccName((d && d.name) || admin.name);
+  const t = await loadByName(name.toLowerCase());
+  if (!t) return { error: `Игрок «${name}» не найден` };
+  let msg = 'найден';
+  switch (d && d.op) {
+    case 'find': break;
+    case 'coins': {
+      const n = Math.trunc(Number(d.amount));
+      if (!Number.isFinite(n) || n === 0 || Math.abs(n) > 1e7) return { error: 'Неверная сумма' };
+      t.coins = Math.max(0, t.coins + n);
+      msg = `монеты ${n > 0 ? '+' : ''}${n} → ${t.coins}`;
+      break;
+    }
+    case 'unlockAll':
+      t.unlocked = R.SHOP_UNITS.slice();
+      msg = 'открыты все юниты';
+      break;
+    case 'resetTimers':
+      t.mine.last = Date.now() - ECON.MINE_CAP_HOURS * HOUR;
+      t.daily.last = null;
+      msg = 'рудник заполнен, ежедневная награда снова доступна';
+      break;
+    case 'mineLevel': {
+      const lvl = Math.trunc(Number(d.level));
+      if (!(lvl >= 1 && lvl <= ECON.MINE_RATE.length)) return { error: 'Уровень рудника: 1–' + ECON.MINE_RATE.length };
+      t.mine.level = lvl;
+      msg = `рудник ур.${lvl}`;
+      break;
+    }
+    default: return { error: 'Неизвестная команда' };
+  }
+  if (d.op !== 'find') {
+    save(t);
+    console.log(`[admin] ${admin.name} → ${t.name}: ${msg}`);
+  }
+  return { target: Object.assign({ id: t.id }, profileView(t)), msg };
+}
+
 function profileView(p) {
   return {
-    name: p.name, coins: p.coins, unlocked: p.unlocked.slice(), squad: p.squad.slice(),
+    name: p.name, admin: isAdmin(p), coins: p.coins, unlocked: p.unlocked.slice(), squad: p.squad.slice(),
     stats: Object.assign({}, p.stats), mine: mineInfo(p), daily: dailyInfo(p),
   };
 }
 
 module.exports = {
   ECON, init: () => store.init(), flushAll, peek: (id) => cache.get(id) || null, register, login, resume, logout, loadById,
-  profileView, collectMine, upgradeMine, claimDaily, buyUnit, setSquad, matchResult,
+  profileView, adminAction, collectMine, upgradeMine, claimDaily, buyUnit, setSquad, matchResult,
 };

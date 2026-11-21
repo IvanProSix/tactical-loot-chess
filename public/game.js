@@ -233,8 +233,9 @@
     const st = profile.stats;
     bar.innerHTML = `<div class="acc-row"><span class="acc-name">👤 ${esc(profile.name)}</span><span id="coinBox" class="coins">${coinFmt(profile.coins)}</span>
         <span class="acc-stats">🏆 ${st.wins} · ✖ ${st.losses}${st.streak > 1 ? ` · 🔥 ${st.streak}` : ''}</span></div>
-      <div class="acc-btns"><button id="btnShop" class="btn small primary">🛒 Магазин</button><button id="btnSquad" class="btn small primary">⚔ Отряд</button><button id="btnLogout" class="btn small">Выйти</button></div>`;
+      <div class="acc-btns"><button id="btnShop" class="btn small primary">🛒 Магазин</button><button id="btnSquad" class="btn small primary">⚔ Отряд</button>${profile.admin ? '<button id="btnAdmin" class="btn small danger">🛠 Админ</button>' : ''}<button id="btnLogout" class="btn small">Выйти</button></div>`;
     $('btnShop').onclick = () => openModal('shop');
+    if ($('btnAdmin')) $('btnAdmin').onclick = () => openModal('admin');
     $('btnSquad').onclick = () => openModal('squad');
     $('btnLogout').onclick = () => {
       if (!confirm('Выйти из аккаунта на этом устройстве?')) return;
@@ -295,6 +296,7 @@
     box.classList.remove('enter'); void box.offsetWidth; box.classList.add('enter');
     if (kind === 'shop') renderShop();
     if (kind === 'squad') renderSquad();
+    if (kind === 'admin') renderAdmin();
   }
   function closeModal() {
     modalKind = null;
@@ -351,6 +353,49 @@
     for (const el of root.querySelectorAll('[data-sprite]')) {
       el.replaceWith(spriteCanvas(el.dataset.sprite, el.dataset.side || 'blue', Number(el.dataset.size) || 48));
     }
+  }
+
+  // ---- админка: выдача монет и юнитов, сброс таймеров (права только у ников из ADMIN_NAMES на сервере)
+  function renderAdmin() {
+    if (!profile || !profile.admin) return closeModal();
+    $('modalBody').innerHTML = `<h2 class="modal-title">🛠 АДМИНКА</h2>
+      <div class="admin-form">
+        <label class="field">ИГРОК (пусто — вы)<input id="admName" maxlength="16" spellcheck="false" placeholder="${esc(profile.name)}"></label>
+        <button id="admFind" class="btn small">Найти</button>
+      </div>
+      <div id="admInfo" class="admin-info econ-dim">Введите ник или оставьте пустым, чтобы управлять своим аккаунтом.</div>
+      <h3>// МОНЕТЫ</h3>
+      <div class="btn-row admin-row">
+        <button class="btn small" data-coins="1000">+1 000</button>
+        <button class="btn small" data-coins="10000">+10 000</button>
+        <button class="btn small" data-coins="100000">+100 000</button>
+        <input id="admAmount" class="code-input admin-amount" type="number" placeholder="сумма">
+        <button id="admGive" class="btn small primary">Выдать</button>
+      </div>
+      <h3>// ЮНИТЫ И ТАЙМЕРЫ</h3>
+      <div class="btn-row admin-row">
+        <button class="btn small primary" data-op="unlockAll">Открыть все юниты</button>
+        <button class="btn small" data-op="resetTimers">Заполнить рудник + сбросить награду</button>
+      </div>
+      <h3>// УРОВЕНЬ РУДНИКА</h3>
+      <div class="btn-row admin-row">${[1, 2, 3, 4, 5].map((l) => `<button class="btn small" data-mine="${l}">${l}</button>`).join('')}</div>
+      <div class="econ-dim" style="margin-top:12px">Отрицательная сумма забирает монеты. Все действия записываются в лог сервера.</div>`;
+    const run = (d) => {
+      d.name = $('admName').value.trim() || profile.name;
+      socket.emit('admin', d, (r) => {
+        if (!r || r.error) { toast((r && r.error) || 'Ошибка', 'err'); Sound.error(); return; }
+        const t = r.target;
+        $('admInfo').innerHTML = `<b>${esc(t.name)}</b>: ${coinFmt(t.coins)} · юнитов открыто: ${t.unlocked.length}/${R.SHOP_UNITS.length} · рудник ур.${t.mine.level} (${t.mine.stored}/${t.mine.cap}) · 🏆 ${t.stats.wins} ✖ ${t.stats.losses}`;
+        if (d.op !== 'find') { toast(`✔ ${t.name}: ${r.msg}`); Sound.ready(); }
+      });
+    };
+    $('admFind').onclick = () => run({ op: 'find' });
+    $('admName').addEventListener('keydown', (e) => { if (e.key === 'Enter') run({ op: 'find' }); });
+    $('admGive').onclick = () => run({ op: 'coins', amount: Number($('admAmount').value) });
+    for (const b of $('modalBody').querySelectorAll('[data-coins]')) b.onclick = () => run({ op: 'coins', amount: Number(b.dataset.coins) });
+    for (const b of $('modalBody').querySelectorAll('[data-op]')) b.onclick = () => run({ op: b.dataset.op });
+    for (const b of $('modalBody').querySelectorAll('[data-mine]')) b.onclick = () => run({ op: 'mineLevel', level: Number(b.dataset.mine) });
+    run({ op: 'find' });
   }
 
   function renderShop() {
