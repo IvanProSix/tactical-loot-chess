@@ -482,7 +482,7 @@ function actAttack(g, side, a) {
   } else if (info.backstab) {
     ev(g, 'backstab', { unitId: t.id, by: u.id });
     addLog(g, `🗡 УДАР В СПИНУ! ${label(u)} атакует ${label(t)} сзади`, 'death');
-    damage(g, t, t.hp, { pierce: true });
+    damage(g, t, info.dmg, { pierce: true });
   } else {
     damage(g, t, info.dmg);
     if (T.knockback) pushAway(g, u, t);

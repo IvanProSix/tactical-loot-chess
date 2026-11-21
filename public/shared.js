@@ -36,7 +36,7 @@
     engineer: { name: 'Инженер', hp: 4, move: 2, dmg: 1, range: 2, minRange: 1, cost: 3, price: 600, ability: 'turret',
       desc: 'Способность (Действие): ставит турель рядом (одна на инженера). Турель сама стреляет в конце вашего хода.' },
     saboteur: { name: 'Диверсант', hp: 4, move: 3, dmg: 3, range: 1, minRange: 1, cost: 3, price: 600, stealth: true, backstab: true,
-      desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту. Удар в спину (с любой из 3 клеток позади цели) убивает мгновенно — спасает только Энергощит.' },
+      desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту. Удар в спину (с любой из 3 клеток позади цели) убивает мгновенно, а Командиру наносит двойной урон (не больше 6). Спасает только Энергощит.' },
     turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 2, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по ближайшему врагу в радиусе 2.' },
   };
@@ -298,7 +298,10 @@
     if (d < min) return { ok: false, reason: 'Слишком близко' };
     if (d > max) return { ok: false, reason: 'Вне дальности' };
     if (!(mode !== 'shotgun' && UNIT_TYPES[u.type].lob) && !hasLOS(g, u, t)) return { ok: false, reason: 'Нет линии огня' };
-    if (mode !== 'shotgun' && UNIT_TYPES[u.type].backstab && isBehind(u, t)) return { ok: true, dmg: Math.max(dmg, t.hp), backstab: true };
+    if (mode !== 'shotgun' && UNIT_TYPES[u.type].backstab && isBehind(u, t)) {
+      // Командира удар в спину не убивает мгновенно: двойной урон, но не больше 6 (у Командира 10 HP)
+      return { ok: true, dmg: t.type === 'commander' ? Math.min(dmg * 2, 6) : Math.max(dmg, t.hp), backstab: true };
+    }
     return { ok: true, dmg };
   }
   function targets(g, u, mode) {

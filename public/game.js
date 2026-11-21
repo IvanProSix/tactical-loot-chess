@@ -1720,7 +1720,7 @@
       }
       const shield = t.item && t.item.type === 'shield';
       const kill = !shield && inf.dmg >= t.hp;
-      const txt = shield ? 'ЩИТ: 0 урона' : inf.backstab ? 'УДАР В СПИНУ ☠' : `-${inf.dmg} HP${kill ? ' ☠' : ''}`;
+      const txt = shield ? 'ЩИТ: 0 урона' : inf.backstab ? `В СПИНУ -${inf.dmg}${kill ? ' ☠' : ''}` : `-${inf.dmg} HP${kill ? ' ☠' : ''}`;
       label(txt, to.x, fx(t.y) * C - S * 2, shield ? '#22d3ee' : inf.backstab ? '#c084fc' : kill ? '#facc15' : '#f87171');
     };
 
