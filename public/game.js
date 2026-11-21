@@ -774,6 +774,23 @@
         await wait(350);
         return;
       }
+      case 'wallbreak': {
+        view.walls = view.walls.filter((w) => !(w.x === e.x && w.y === e.y));
+        booms.push({ x: e.x, y: e.y, t0: nowMs(), big: false });
+        burst(cellCenter(e.x, e.y), 26, ['#9ca3af', '#6b7280', '#facc15', '#374151'], 2.6);
+        addFloat('ХРЯСЬ!', e.x, e.y, '#facc15');
+        shake = Math.max(shake, 6);
+        Sound.explosion(false);
+        await wait(200);
+        return;
+      }
+      case 'ram': {
+        if (u) addFloat('ТАРАН!', u.x, u.y, '#fb923c');
+        shake = Math.max(shake, 4);
+        Sound.hit();
+        await wait(120);
+        return;
+      }
       case 'aura': {
         if (u) addFloat('ЩИТ −1', u.x, u.y, '#93c5fd');
         return;
@@ -1354,6 +1371,11 @@
           const s2 = R.attackInfo(view, su, cu, 'shotgun');
           if (s2.ok) { sendAction({ type: 'shotgun', unitId: su.id, targetId: cu.id }); return; }
         }
+        // слоник: если атаковать нельзя — таранит
+        if (R.UNIT_TYPES[su.type].trample && R.canMove(view, su) && R.moveCells(view, su).some((p) => p.x === c.x && p.y === c.y)) {
+          sendAction({ type: 'move', unitId: su.id, x: c.x, y: c.y });
+          return;
+        }
         toast(inf.reason, 'err'); Sound.error();
         return;
       }
@@ -1541,6 +1563,11 @@
     if (mode === 'normal') {
       if (R.canMove(view, su)) {
         for (const { x, y } of R.moveCells(view, su)) {
+          if (R.rammable(view, su, x, y)) {
+            fillCell(x, y, 'rgba(251,146,60,0.22)');
+            frameCell(x, y, `rgba(251,146,60,${0.45 + 0.4 * pulse})`, S, S);
+            continue;
+          }
           fillCell(x, y, 'rgba(34,211,238,0.16)');
           frameCell(x, y, 'rgba(34,211,238,0.35)', S, S);
         }
@@ -1745,12 +1772,24 @@
     };
 
     if (mode === 'normal') {
-      if (enemy) {
+      const canRam = R.UNIT_TYPES[su.type].trample && R.canMove(view, su) && R.moveCells(view, su).some((p) => p.x === hover.x && p.y === hover.y);
+      const ramEnemy = enemy && canRam && !R.attackInfo(view, su, hu, 'normal').ok;
+      if (enemy && !ramEnemy) {
         const n = R.attackInfo(view, su, hu, 'normal');
         if (!n.ok && su.item && su.item.type === 'shotgun' && R.attackInfo(view, su, hu, 'shotgun').ok) aim(hu, 'shotgun', '#fb923c');
         else aim(hu, 'normal', '#f87171');
-      } else if (!hu && R.canMove(view, su)) {
+      } else if ((!hu || ramEnemy) && R.canMove(view, su)) {
         const path = R.pathTo(R.reachable(view, su), hover.x, hover.y);
+        if (path && R.UNIT_TYPES[su.type].trample) {
+          // подписи тарана: что сломает и кого протаранит на этом пути
+          for (let i = 1; i < path.length; i++) {
+            const [px, py] = path[i];
+            const c = cellCenter(px, py);
+            if (R.isWall(view, px, py)) label('ЛОМАЕТ', c.x, fx(py) * C - 2 * S, '#facc15');
+            const o = R.unitAt(view, px, py);
+            if (o && o.side !== su.side) label(`ТАРАН -${R.unitDmg(su)}`, c.x, fx(py) * C - 2 * S, '#fb923c');
+          }
+        }
         if (path && path.length > 1) {
           ctx.fillStyle = '#22d3ee';
           for (let i = 1; i < path.length; i++) {

@@ -38,8 +38,8 @@
     saboteur: { name: 'Диверсант', hp: 4, move: 3, dmg: 3, range: 1, minRange: 1, cost: 3, price: 600, stealth: true, backstab: true,
       desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту. Удар в спину (с любой из 3 клеток позади цели) убивает мгновенно, а Командиру наносит двойной урон (не больше 6). Спасает только Энергощит.' },
     // Особый юнит: в магазине его нет, выдаёт только администратор
-    elephant: { name: 'Зелёный слоник', hp: 8, move: 3, dmg: 2, range: 2, minRange: 1, cost: 3, price: 0, special: true, ability: 'trumpet', knockback: true,
-      desc: 'Особый юнит — выдаёт только администратор. Атака отбрасывает цель на клетку. Способность (Действие): трубный рёв — все враги вокруг получают 1 урона и отлетают на клетку.' },
+    elephant: { name: 'Зелёный слоник', hp: 8, move: 3, dmg: 2, range: 2, minRange: 1, cost: 3, price: 0, special: true, ability: 'trumpet', knockback: true, trample: true,
+      desc: 'Особый юнит — выдаёт только администратор. ТАРАН: ходит сквозь стены, ломая их, и сквозь врагов — враг на пути получает урон и отлетает (если некуда — +1 урона, и слоник останавливается). Атака отбрасывает цель. Способность: трубный рёв — враги вокруг получают 1 урона и отлетают.' },
     turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 2, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по ближайшему врагу в радиусе 2.' },
   };
@@ -243,8 +243,45 @@
     return (attacker.y - target.y) * dir > 0;
   }
 
+  // Таран (Зелёный слоник): путь сквозь стены и врагов, но не сквозь своих.
+  // Препятствие стоит чуть дороже свободной клетки — при равной длине слоник идёт в обход.
+  function trampleReachable(g, u) {
+    const range = moveRange(u);
+    const start = key(u.x, u.y);
+    const cost = new Map([[start, 0]]);
+    const steps = new Map([[start, 0]]);
+    const prev = new Map([[start, -1]]);
+    const open = [start];
+    while (open.length) {
+      open.sort((a, b) => cost.get(a) - cost.get(b));
+      const k = open.shift();
+      const x = k % N, y = Math.floor(k / N);
+      const st = steps.get(k);
+      if (st >= range) continue;
+      for (const [dx, dy] of DIR4) {
+        const nx = x + dx, ny = y + dy;
+        if (!inBounds(nx, ny)) continue;
+        const o = unitAt(g, nx, ny);
+        if (o && o.side === u.side) continue;
+        const nk = key(nx, ny);
+        const c = cost.get(k) + 1 + ((o || isWall(g, nx, ny)) ? 0.01 : 0);
+        if (cost.has(nk) && cost.get(nk) <= c) continue;
+        cost.set(nk, c); steps.set(nk, st + 1); prev.set(nk, k);
+        open.push(nk);
+      }
+    }
+    return prev;
+  }
+  // Клетка на пути тарана, где слоник что-то ломает или кого-то таранит
+  function rammable(g, u, x, y) {
+    if (!UNIT_TYPES[u.type].trample) return false;
+    const o = unitAt(g, x, y);
+    return isWall(g, x, y) || !!(o && o.side !== u.side);
+  }
+
   // BFS по 4 направлениям. Возвращает Map(key -> prevKey)
   function reachable(g, u) {
+    if (UNIT_TYPES[u.type].trample) return trampleReachable(g, u);
     const range = moveRange(u);
     const fly = !!UNIT_TYPES[u.type].fly;
     const start = key(u.x, u.y);
@@ -270,9 +307,10 @@
   // Клетки, где юнит может закончить движение (дрон не может стоять на стене)
   function moveCells(g, u) {
     const out = [];
+    const tr = !!UNIT_TYPES[u.type].trample;
     for (const k of reachable(g, u).keys()) {
       const x = k % N, y = Math.floor(k / N);
-      if ((x === u.x && y === u.y) || isWall(g, x, y)) continue;
+      if ((x === u.x && y === u.y) || (!tr && isWall(g, x, y))) continue;
       out.push({ x, y });
     }
     return out;
@@ -387,7 +425,7 @@
     RARITIES, MAX_LUCK, ITEM_STATS, itemStat, rarityName, itemFullName, itemDesc,
     lootLevel, cratesPerDrop, maxCrates, dropInterval, rarityWeights, rarityChances, doubleDropChance,
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS,
-    BUFF_CAP, unitDmg, unitRange, isBehind, sniperLocked,
+    BUFF_CAP, rammable, unitDmg, unitRange, isBehind, sniperLocked,
     canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
     BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
     squadError, squadCost, isHidden, abilityTargets,

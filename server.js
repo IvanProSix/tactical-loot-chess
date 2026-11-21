@@ -500,14 +500,61 @@ function actMove(g, side, a) {
   if (!u) return 'Юнит недоступен';
   if (!R.canMove(g, u)) return u.type === 'sniper' && u.attacked ? 'Снайпер уже стрелял и не может двигаться' : 'Этот юнит не может двигаться';
   const x = toInt(a.x), y = toInt(a.y);
-  if (!R.inBounds(x, y) || (x === u.x && y === u.y) || R.isWall(g, x, y)) return 'Неверная клетка';
+  const trample = !!R.UNIT_TYPES[u.type].trample;
+  if (!R.inBounds(x, y) || (x === u.x && y === u.y) || (!trample && R.isWall(g, x, y))) return 'Неверная клетка';
   const prev = R.reachable(g, u);
   const path = R.pathTo(prev, x, y);
   if (!path) return 'Клетка недостижима';
   activate(g, u);
   u.moved = true;
-  travel(g, u, path);
+  if (trample) trampleTravel(g, u, path);
+  else travel(g, u, path);
   return null;
+}
+
+// Таран Зелёного слоника: стены на пути ломаются, враги получают урон и отлетают по ходу движения.
+// Если врагу некуда отлететь — он получает +1 урона, а слоник останавливается перед ним.
+function trampleTravel(g, u, path) {
+  let seg = [path[0]];
+  const flush = () => {
+    if (seg.length > 1) ev(g, 'move', { unitId: u.id, path: seg });
+    seg = [[u.x, u.y]];
+  };
+  for (let i = 1; i < path.length; i++) {
+    const [nx, ny] = path[i];
+    const dx = nx - u.x, dy = ny - u.y;
+    if (R.isWall(g, nx, ny)) {
+      flush();
+      g.walls = g.walls.filter((w) => !(w.x === nx && w.y === ny));
+      ev(g, 'wallbreak', { unitId: u.id, x: nx, y: ny });
+      addLog(g, `🐘 ${label(u)} проламывает стену!`, 'atk');
+    }
+    const t = R.unitAt(g, nx, ny);
+    if (t && t.side !== u.side) {
+      flush();
+      reveal(g, t);
+      const px = nx + dx, py = ny + dy;
+      const free = R.inBounds(px, py) && !R.isWall(g, px, py) && !R.unitAt(g, px, py);
+      ev(g, 'ram', { unitId: t.id, by: u.id });
+      addLog(g, `🐘 ${label(u)} таранит ${label(t)}!`, 'atk');
+      if (free) {
+        damage(g, t, R.unitDmg(u));
+        if (t.alive) {
+          t.x = px; t.y = py;
+          ev(g, 'knockback', { unitId: t.id, from: { x: nx, y: ny }, to: { x: px, y: py } });
+          enterCell(g, t, null);
+        }
+      } else {
+        damage(g, t, R.unitDmg(u) + 1);
+        if (t.alive) { addLog(g, `${label(t)} прижат — слоник остановился`, 'atk'); return; }
+      }
+      if (R.unitAt(g, nx, ny)) return; // клетку так и не освободили
+    }
+    u.x = nx; u.y = ny;
+    seg.push([nx, ny]);
+    if (enterCell(g, u, flush)) return;
+  }
+  flush();
 }
 
 function reveal(g, u) {
