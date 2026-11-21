@@ -582,7 +582,7 @@ function actAttack(g, side, a) {
   u.acted = true; u.attacked = true;
   reveal(g, u);
   const T = R.UNIT_TYPES[u.type];
-  const kind = u.type === 'sniper' ? 'sniper' : T.lob ? 'grenade' : 'laser';
+  const kind = R.SHOT_KIND[u.type] || 'laser';
   ev(g, 'shot', { unitId: u.id, from: { x: u.x, y: u.y }, to: { x: t.x, y: t.y }, kind, side: u.side });
   addLog(g, `${label(u)} ${T.lob ? 'бросает гранату в' : 'атакует:'} ${label(t)}`, 'atk');
   if (T.lob) {

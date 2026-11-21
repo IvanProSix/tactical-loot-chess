@@ -43,6 +43,12 @@
     turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 2, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по ближайшему врагу в радиусе 2.' },
   };
+  // Вид снаряда у каждого юнита (влияет только на анимацию и звук)
+  const SHOT_KIND = {
+    commander: 'bolt', assault: 'burst', sniper: 'sniper', scout: 'dart', medic: 'syringe', grenadier: 'grenade',
+    heavy: 'punch', engineer: 'laser', saboteur: 'knife', drone: 'laser', shieldbearer: 'shield', signaller: 'wave',
+    elephant: 'bone', turret: 'laser',
+  };
   const BASIC_UNITS = ['assault', 'sniper', 'scout'];
   const SHOP_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].price > 0);
   const SPECIAL_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].special);
@@ -427,7 +433,7 @@
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS,
     BUFF_CAP, rammable, unitDmg, unitRange, isBehind, sniperLocked,
     canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
-    BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
+    SHOT_KIND, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
     squadError, squadCost, isHidden, abilityTargets,
     jetpackCells, mineCells, hasUsefulMove, hasUsefulAct, shouldAutoEnd,
   };

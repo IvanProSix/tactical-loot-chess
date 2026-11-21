@@ -643,10 +643,8 @@
         if (u && e.kind === 'shotgun') u.item = e.item || null;
         if (u) markUsed(u, 'attack');
         const dur = addProjectile(e.from, e.to, e.kind, e.side);
-        if (e.kind === 'shotgun') Sound.shotgun();
-        else if (e.kind === 'sniper') Sound.sniper();
-        else if (e.kind === 'grenade') { Sound.jet(); setTimeout(() => Sound.explosion(false), dur - 30); }
-        else Sound.laser();
+        if (e.kind === 'grenade') { Sound.jet(); setTimeout(() => Sound.explosion(false), dur - 30); }
+        else Sound.shot(e.kind);
         burst(cellCenter(e.from.x, e.from.y), 5, ['#fff', '#facc15'], 1.2);
         await wait(dur);
         return;
@@ -841,7 +839,12 @@
   // ------------------------------------------------------------ эффекты
   function addProjectile(from, to, kind, side) {
     const d = Math.hypot(to.x - from.x, to.y - from.y);
-    const dur = kind === 'sniper' ? 110 : kind === 'shotgun' ? 130 : kind === 'grenade' ? 380 : Math.round(80 + d * 45);
+    const DUR = {
+      sniper: 110, shotgun: 130, grenade: 380, punch: 150,
+      bolt: 90 + d * 40, burst: 220 + d * 40, dart: 120 + d * 45, syringe: 140 + d * 45,
+      knife: 160 + d * 50, bone: 200 + d * 55, shield: 180 + d * 55, wave: 260 + d * 60,
+    };
+    const dur = Math.round(DUR[kind] != null ? DUR[kind] : 80 + d * 45);
     projectiles.push({ from, to, kind, side, t0: nowMs(), dur });
     return dur;
   }
@@ -1823,6 +1826,11 @@
     }
   }
 
+  // Снаряды-спрайты: [имя, вращается, размер в долях клетки]
+  const PROJ_SPRITE = {
+    knife: ['p_knife', true, 0.6], bone: ['p_bone', true, 0.7], syringe: ['p_syringe', false, 0.6],
+    dart: ['p_dart', false, 0.55], punch: ['p_fist', false, 0.75], shield: ['i_shield', true, 0.6],
+  };
   function drawFx(now, dt) {
     // снаряды
     for (let i = projectiles.length - 1; i >= 0; i--) {
@@ -1831,7 +1839,13 @@
       const a = cellCenter(p.from.x, p.from.y), b = cellCenter(p.to.x, p.to.y);
       if (t >= 1) {
         projectiles.splice(i, 1);
-        burst(b, 8, p.kind === 'shotgun' ? ['#fb923c', '#facc15'] : ['#fff', TEAM_COL[p.side] || '#fff'], 1.6);
+        const HIT = {
+          shotgun: ['#fb923c', '#facc15'], knife: ['#e5e7eb', '#ef4444'], bone: ['#f8fafc', '#d1d5db'], syringe: ['#22d3ee', '#fff'],
+          dart: ['#22d3ee', '#fff'], punch: ['#fb923c', '#9ca3af', '#fff'], shield: ['#22d3ee', '#93c5fd'], wave: ['#4ade80', '#bbf7d0'],
+          bolt: ['#facc15', '#fde68a', '#fff'],
+        };
+        burst(b, p.kind === 'punch' ? 14 : 8, HIT[p.kind] || ['#fff', TEAM_COL[p.side] || '#fff'], 1.6);
+        if (p.kind === 'punch' || p.kind === 'bone') shake = Math.max(shake, 2.5);
         continue;
       }
       const hx = a.x + (b.x - a.x) * t, hy = a.y + (b.y - a.y) * t;
@@ -1839,6 +1853,47 @@
         pixLine(a.x, a.y, hx, hy, S, '#fde68a', 1);
         ctx.fillStyle = '#fff';
         ctx.fillRect(snap(hx - S * 1.5), snap(hy - S * 1.5), 3 * S, 3 * S);
+      } else if (PROJ_SPRITE[p.kind]) {
+        // предметы-снаряды: нож и кость вращаются, шприц/дротик/кулак летят остриём вперёд
+        const [name, spin, scale] = PROJ_SPRITE[p.kind];
+        const ang = spin ? t * Math.PI * 6 : Math.atan2(b.y - a.y, b.x - a.x);
+        const size = C * scale;
+        ctx.save();
+        ctx.translate(snap(hx), snap(hy));
+        ctx.rotate(ang);
+        ctx.drawImage(Sprites.get(name), -size / 2, -size / 2, size, size);
+        ctx.restore();
+      } else if (p.kind === 'bolt') {
+        const tx = a.x + (b.x - a.x) * Math.max(0, t - 0.3), ty = a.y + (b.y - a.y) * Math.max(0, t - 0.3);
+        pixLine(tx, ty, hx, hy, 4 * S, '#a16207', 1);
+        pixLine(tx, ty, hx, hy, 2 * S, '#facc15', 1);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(snap(hx - 2 * S), snap(hy - 2 * S), 4 * S, 4 * S);
+      } else if (p.kind === 'burst') {
+        // очередь из трёх пуль
+        for (let k = 0; k < 3; k++) {
+          const tk = (t * 1.6) - k * 0.3;
+          if (tk < 0 || tk > 1) continue;
+          const bx = a.x + (b.x - a.x) * tk, by = a.y + (b.y - a.y) * tk;
+          ctx.fillStyle = '#facc15';
+          ctx.fillRect(snap(bx - S), snap(by - S), 2 * S, 2 * S);
+          ctx.fillStyle = TEAM_COL[p.side] || '#fff';
+          ctx.fillRect(snap(bx - S - (b.x - a.x) / Math.hypot(b.x - a.x, b.y - a.y || 1) * 2 * S), snap(by - S), S, S);
+        }
+      } else if (p.kind === 'wave') {
+        // радиоволны: три дуги, расходящиеся к цели
+        const ang = Math.atan2(b.y - a.y, b.x - a.x);
+        for (let k = 0; k < 3; k++) {
+          const tk = t - k * 0.18;
+          if (tk < 0 || tk > 1) continue;
+          const cx = a.x + (b.x - a.x) * tk, cy = a.y + (b.y - a.y) * tk;
+          const r = C * (0.18 + 0.12 * k);
+          ctx.fillStyle = k === 0 ? '#bbf7d0' : '#4ade80';
+          for (let j = -3; j <= 3; j++) {
+            const aa = ang + j * 0.22;
+            ctx.fillRect(snap(cx + Math.cos(aa) * r - S / 2), snap(cy + Math.sin(aa) * r - S / 2), S, S);
+          }
+        }
       } else if (p.kind === 'grenade') {
         const z = Math.sin(t * Math.PI) * C * 1.3;
         ctx.fillStyle = 'rgba(0,0,0,0.35)';

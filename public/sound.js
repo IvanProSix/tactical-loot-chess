@@ -217,6 +217,47 @@ const Sound = (() => {
       tone({ type: 'triangle', f: 523, dur: 0.1, vol: 0.13 });
       tone({ type: 'triangle', f: 784, dur: 0.16, vol: 0.13, delay: 0.1 });
     },
+    // Звук выстрела по виду снаряда
+    shot(kind) {
+      switch (kind) {
+        case 'sniper': return this.sniper();
+        case 'shotgun': return this.shotgun();
+        case 'bolt':
+          tone({ type: 'sawtooth', f: 900, f2: 140, dur: 0.22, vol: 0.13 });
+          tone({ type: 'square', f: 300, f2: 80, dur: 0.2, vol: 0.08 });
+          return;
+        case 'burst':
+          for (let i = 0; i < 3; i++) {
+            tone({ type: 'square', f: 520, f2: 160, dur: 0.05, vol: 0.09, delay: i * 0.07 });
+            noise({ f: 3000, dur: 0.04, vol: 0.08, delay: i * 0.07 });
+          }
+          return;
+        case 'dart': case 'syringe':
+          noise({ f: 5000, f2: 1800, dur: 0.12, vol: 0.12, filter: 'bandpass', q: 2 });
+          tone({ type: 'triangle', f: 1400, f2: 900, dur: 0.06, vol: 0.05 });
+          return;
+        case 'knife':
+          noise({ f: 6000, f2: 2500, dur: 0.18, vol: 0.14, filter: 'bandpass', q: 3 });
+          tone({ type: 'triangle', f: 2200, f2: 1700, dur: 0.08, vol: 0.05, delay: 0.05 });
+          return;
+        case 'bone':
+          noise({ f: 1500, f2: 600, dur: 0.15, vol: 0.1, filter: 'bandpass', q: 1.5 });
+          tone({ type: 'triangle', f: 320, f2: 160, dur: 0.12, vol: 0.12, delay: 0.12 });
+          return;
+        case 'punch':
+          noise({ f: 900, f2: 120, dur: 0.2, vol: 0.3 });
+          tone({ type: 'sine', f: 140, f2: 50, dur: 0.22, vol: 0.3 });
+          return;
+        case 'shield':
+          tone({ type: 'square', f: 1100, f2: 1300, dur: 0.12, vol: 0.06 });
+          tone({ type: 'triangle', f: 660, dur: 0.25, vol: 0.08, delay: 0.1 });
+          return;
+        case 'wave':
+          for (let i = 0; i < 3; i++) tone({ type: 'sine', f: 600 + i * 220, f2: 900 + i * 220, dur: 0.1, vol: 0.08, delay: i * 0.08 });
+          return;
+        default: return this.laser();
+      }
+    },
     trumpet() {
       tone({ type: 'sawtooth', f: 180, f2: 330, dur: 0.25, vol: 0.14 });
       tone({ type: 'sawtooth', f: 330, f2: 300, dur: 0.45, vol: 0.14, delay: 0.24 });
