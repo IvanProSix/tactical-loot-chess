@@ -5,7 +5,8 @@ const MenuBG = (() => {
   'use strict';
   const CELL = 16;
   const FRAME_MS = 1000 / 30;
-  const TYPES = ['commander', 'assault', 'sniper', 'scout', 'assault', 'scout'];
+  const TYPES = ['commander', 'assault', 'sniper', 'scout', 'medic', 'grenadier', 'heavy', 'engineer',
+    'saboteur', 'drone', 'shieldbearer', 'signaller'];
   const RARITY = ['#cbd5e1', '#38bdf8', '#c084fc', '#f59e0b', '#f43f5e'];
 
   let cv = null, ctx = null, W = 0, H = 0, GW = 0, GH = 0, WW = 0, WH = 0;
@@ -50,7 +51,8 @@ const MenuBG = (() => {
     for (let i = 0; i < nw; i++) walls.add(key(irnd(GW), irnd(GH)));
     units = [];
     const n = Math.min(lowPower ? 8 : 16, Math.max(6, Math.floor((GW * GH) / 26)));
-    for (let i = 0; i < n; i++) spawnUnit(i % 2 ? 'red' : 'blue', TYPES[i % TYPES.length]);
+    const order = TYPES.slice().sort(() => Math.random() - 0.5);
+    for (let i = 0; i < n; i++) spawnUnit(i % 2 ? 'red' : 'blue', order[i % order.length]);
     crates = []; shots = []; booms = []; sparks = [];
     vignette = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.25, W / 2, H / 2, Math.max(W, H) * 0.75);
     vignette.addColorStop(0, 'rgba(5,8,13,0.5)');

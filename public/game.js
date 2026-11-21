@@ -1610,7 +1610,10 @@
     for (const { u, p } of list) {
       const gx = snap(fx(p.x) * C);
       const gy = snap(fx(p.y) * C);
-      const idle = !anims.has(u.id) && u.side === view.turn && Math.floor(now / 420 + u.id.charCodeAt(1)) % 2 === 0 ? -S : 0;
+      // «дыхание»: все юниты покачиваются (у ходящей стороны — чаще); турель стоит неподвижно
+      const ph = u.id.charCodeAt(u.id.length - 1) + u.id.length;
+      const rate = u.side === view.turn ? 420 : 640;
+      const idle = !anims.has(u.id) && !R.UNIT_TYPES[u.type].static && Math.floor(now / rate + ph) % 2 === 0 ? -S : 0;
       const py = snap(gy - p.z * C + idle);
       // тень и подставка команды
       ctx.fillStyle = 'rgba(0,0,0,0.45)';

@@ -521,3 +521,9 @@ h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: 2px; color: var(--cyan); 
 .admin-info b { color: #fff; }
 .admin-row { justify-content: flex-start; align-items: center; }
 .admin-amount { flex: 0 1 130px; letter-spacing: 1px; font-size: 14px; padding: 6px 8px; }
+
+/* «дыхание» спрайтов в лобби, магазине и окне отряда — со сдвигом по фазе */
+.squad-row canvas, .shop-item canvas, .sq-member canvas, .sq-pick canvas, .portrait { animation: bob 1s steps(2) infinite; }
+.squad-row canvas:nth-child(2n), .shop-list .shop-item:nth-child(2n) canvas, .sq-member:nth-child(2n) canvas, .sq-pick:nth-child(2n) canvas { animation-delay: -.5s; }
+.squad-row canvas:nth-child(3n), .sq-pick:nth-child(3n) canvas { animation-duration: 1.2s; }
+.sq-pick:disabled canvas { animation: none; }
