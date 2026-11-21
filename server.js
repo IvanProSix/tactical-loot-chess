@@ -113,7 +113,72 @@ function createRoom(solo) {
   rooms.set(room.code, room);
   return room;
 }
+// ---------------------------------------------------------------- Сохранение матчей (переживают перезапуск сервера)
+const RESTORE_MAX_AGE_MS = 30 * 60 * 1000; // восстанавливаем комнаты, менявшиеся за последние 30 минут
+const RESTORE_GRACE_MS = 45 * 1000; // после перезапуска к ходу добавляется время на переподключение
+const persistTimers = new Map();
+function serializeRoom(room) {
+  const slots = {};
+  for (const s of SIDES) {
+    const sl = room.slots[s];
+    slots[s] = sl ? { token: sl.token, name: sl.name, ready: sl.ready, playerId: sl.playerId || null, squad: sl.squad } : null;
+  }
+  // g.room — неперечисляемое свойство, в JSON не попадает
+  return { slots, phase: room.phase, solo: room.solo, game: room.game, rematch: room.rematch, rewards: room.rewards || null };
+}
+function persistRoom(room) {
+  if (!rooms.has(room.code)) return;
+  clearTimeout(persistTimers.get(room.code));
+  persistTimers.set(room.code, setTimeout(() => {
+    persistTimers.delete(room.code);
+    if (!rooms.has(room.code)) return;
+    A.rooms.save(room.code, serializeRoom(room)).catch((e) => console.error('[db] сохранение комнаты', room.code, e.message));
+  }, 700));
+}
+async function persistAllNow() {
+  for (const t of persistTimers.values()) clearTimeout(t);
+  persistTimers.clear();
+  await Promise.all([...rooms.values()].map((room) =>
+    A.rooms.save(room.code, serializeRoom(room)).catch((e) => console.error('[db]', e.message))));
+}
+async function restoreRooms() {
+  let list = [];
+  try { list = await A.rooms.load(RESTORE_MAX_AGE_MS); } catch (e) { console.error('[db] загрузка комнат', e.message); return; }
+  let n = 0;
+  for (const { code, data } of list) {
+    if (!data || rooms.has(code)) continue;
+    const room = {
+      code, slots: { blue: null, red: null }, phase: data.phase || 'lobby', solo: !!data.solo, game: data.game || null,
+      rematch: data.rematch || { blue: false, red: false }, rewards: data.rewards || null, turnTimer: null, emptySince: Date.now(),
+    };
+    for (const s of SIDES) {
+      const sl = data.slots && data.slots[s];
+      if (sl) room.slots[s] = Object.assign({}, sl, { connected: false, socketId: null, graceTimer: null, ready: room.phase === 'lobby' ? false : sl.ready });
+      if (sl && sl.playerId) await A.loadById(sl.playerId).catch(() => null); // чтобы награды начислились, даже если игрок не вернётся
+    }
+    if (room.game) {
+      Object.defineProperty(room.game, 'room', { value: room });
+      room.game.events = null;
+      if (room.phase === 'game') room.game.turnEndsAt = Date.now() + TURN_MS + RESTORE_GRACE_MS;
+    } else if (room.phase !== 'lobby') room.phase = 'lobby';
+    rooms.set(code, room);
+    if (room.phase === 'game') scheduleTurnTimer(room);
+    if (room.phase === 'lobby') {
+      // в лобби место того, кто не вернулся за минуту, освобождается
+      for (const s of SIDES) {
+        const sl = room.slots[s];
+        if (sl) sl.graceTimer = setTimeout(() => { if (room.slots[s] === sl && !sl.connected) { room.slots[s] = null; emitLobby(room); } }, 60000);
+      }
+    }
+    n++;
+  }
+  if (n) console.log(`[room] восстановлено после перезапуска: ${n}`);
+}
+
 function deleteRoom(room) {
+  clearTimeout(persistTimers.get(room.code));
+  persistTimers.delete(room.code);
+  A.rooms.del(room.code).catch(() => {});
   clearTimeout(room.turnTimer);
   for (const s of SIDES) if (room.slots[s]) clearTimeout(room.slots[s].graceTimer);
   rooms.delete(room.code);
@@ -761,6 +826,7 @@ function eventsFor(viewer, events) {
 }
 function broadcastState(room, events) {
   if (!room.game) return;
+  persistRoom(room);
   for (const socket of roomSockets(room)) {
     const v = viewerOf(socket, room);
     socket.emit('state', { state: stateFor(room, v), events: eventsFor(v, events) });
@@ -774,6 +840,7 @@ function lobbyFor(socket, room) {
   };
 }
 function emitLobby(room) {
+  persistRoom(room);
   for (const socket of roomSockets(room)) socket.emit('lobby', lobbyFor(socket, room));
 }
 
@@ -1195,12 +1262,13 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[${sig}] сохраняю данные и выключаюсь…`);
+    try { await persistAllNow(); } catch (e) { console.error(e); }
     try { await A.flushAll(); } catch (e) { console.error(e); }
     process.exit(0);
   });
 }
 
-A.init().then(() => {
+A.init().then(restoreRooms).then(() => {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`\n  TACTICAL LOOT CHESS — сервер запущен: http://localhost:${PORT}\n`);
   });

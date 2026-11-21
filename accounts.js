@@ -37,6 +37,8 @@ class FileStore {
   }
   async init() {
     try { this.data = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch (e) { this.data = {}; }
+    this.roomsFile = path.join(path.dirname(this.file), 'rooms.json');
+    try { this.rooms = JSON.parse(fs.readFileSync(this.roomsFile, 'utf8')); } catch (e) { this.rooms = {}; }
     console.log(`[db] JSON-файл ${this.file} (игроков: ${Object.keys(this.data).length})`);
   }
   async getById(id) { return this.data[id] ? JSON.parse(JSON.stringify(this.data[id])) : null; }
@@ -61,7 +63,21 @@ class FileStore {
     fs.writeFileSync(tmp, JSON.stringify(this.data));
     fs.renameSync(tmp, this.file);
   }
-  async close() { this.writeNow(); }
+  async close() { this.writeNow(); this.writeRoomsNow(); }
+  // ---- сохранённые матчи
+  async saveRoom(code, data) { this.rooms[code] = { data, t: Date.now() }; this.flushRooms(); }
+  async deleteRoom(code) { if (this.rooms[code]) { delete this.rooms[code]; this.flushRooms(); } }
+  async loadRooms(maxAgeMs) {
+    const now = Date.now();
+    return Object.entries(this.rooms).filter(([, v]) => now - v.t < maxAgeMs).map(([code, v]) => ({ code, data: v.data }));
+  }
+  flushRooms() { clearTimeout(this.roomsTimer); this.roomsTimer = setTimeout(() => this.writeRoomsNow(), 300); }
+  writeRoomsNow() {
+    clearTimeout(this.roomsTimer);
+    fs.mkdirSync(path.dirname(this.roomsFile), { recursive: true });
+    fs.writeFileSync(this.roomsFile + '.tmp', JSON.stringify(this.rooms));
+    fs.renameSync(this.roomsFile + '.tmp', this.roomsFile);
+  }
 }
 
 class PgStore {
@@ -74,6 +90,9 @@ class PgStore {
   async init() {
     await this.pool.query(`CREATE TABLE IF NOT EXISTS players (
       id TEXT PRIMARY KEY, name_lc TEXT UNIQUE NOT NULL, data JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+    await this.pool.query(`CREATE TABLE IF NOT EXISTS rooms (
+      code TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+    await this.pool.query("DELETE FROM rooms WHERE updated_at < now() - interval '1 day'");
     const r = await this.pool.query('SELECT count(*)::int AS n FROM players');
     console.log(`[db] Postgres подключён (игроков: ${r.rows[0].n})`);
   }
@@ -97,6 +116,16 @@ class PgStore {
     await this.pool.query('UPDATE players SET data = $2, updated_at = now() WHERE id = $1', [p.id, p]);
   }
   async close() { await this.pool.end(); }
+  // ---- сохранённые матчи
+  async saveRoom(code, data) {
+    await this.pool.query(`INSERT INTO rooms (code, data, updated_at) VALUES ($1, $2, now())
+      ON CONFLICT (code) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`, [code, JSON.stringify(data)]);
+  }
+  async deleteRoom(code) { await this.pool.query('DELETE FROM rooms WHERE code = $1', [code]); }
+  async loadRooms(maxAgeMs) {
+    const r = await this.pool.query('SELECT code, data FROM rooms WHERE updated_at > now() - ($1::int * interval \'1 millisecond\')', [maxAgeMs]);
+    return r.rows;
+  }
 }
 
 const store = process.env.DATABASE_URL
@@ -380,6 +409,11 @@ function profileView(p) {
 }
 
 module.exports = {
+  rooms: {
+    save: (code, data) => store.saveRoom(code, data),
+    del: (code) => store.deleteRoom(code),
+    load: (maxAgeMs) => store.loadRooms(maxAgeMs),
+  },
   ECON, init: async () => {
     await store.init();
     for (const n of ADMINS) if (!(await loadByName(n))) console.warn(`[admin] ⚠ ник «${n}» из ADMIN_NAMES не зарегистрирован`);
