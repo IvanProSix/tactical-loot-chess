@@ -20,7 +20,10 @@
       <h1 class="logo" data-text="TACTICAL"><span class="logo-main glitch" data-text="TACTICAL">TACTICAL</span><span class="logo-sub">LOOT CHESS</span></h1>
       <p class="subtitle"><span id="typeLine"></span><span class="caret">_</span></p>
 
-      <label class="field enter" style="--d:.35s">ПОЗЫВНОЙ
+      <div id="accountBar" class="account-bar enter" style="--d:.3s"></div>
+      <div id="econBar" class="econ-bar enter hidden" style="--d:.4s"></div>
+
+      <label id="nameField" class="field enter" style="--d:.35s">ПОЗЫВНОЙ
         <input id="nameInput" maxlength="16" autocomplete="off" spellcheck="false">
       </label>
 
@@ -130,12 +133,21 @@
     <div class="over-box panel">
       <h2 id="overTitle">ПОБЕДА</h2>
       <p id="overSub"></p>
+      <p id="overReward" class="over-reward"></p>
       <div class="btn-row">
         <button id="btnRematch" class="btn primary">Реванш</button>
         <button id="btnToLobby" class="btn">В комнату</button>
         <button id="btnToMenu" class="btn">В меню</button>
         <button id="btnHideOver" class="btn small">Посмотреть поле</button>
       </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО (вход, магазин, отряд) -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-box panel">
+      <button id="modalClose" class="modal-x" title="Закрыть">✕</button>
+      <div id="modalBody"></div>
     </div>
   </div>
 

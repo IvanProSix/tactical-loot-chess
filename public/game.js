@@ -140,7 +140,7 @@
 
   socket.on('connect', () => {
     $('connState').classList.add('hidden');
-    socket.emit('hello', { token, name: myName, code: roomCode });
+    socket.emit('hello', { token, name: myName, code: roomCode, session });
   });
   socket.on('disconnect', () => $('connState').classList.remove('hidden'));
   socket.on('menu', () => goMenu());
@@ -192,6 +192,251 @@
     socket.emit('action', a);
     mode = 'normal';
     setPending(true);
+  }
+
+  // ------------------------------------------------------------ аккаунт, экономика, магазин, отряд
+  let session = store.get(localStorage, 'tlc_session');
+  let profile = null;
+  let profileAt = 0;
+  let modalKind = null;
+  let draftSquad = null;
+  const coinFmt = (n) => `${Math.floor(n).toLocaleString('ru-RU')} 💰`;
+  const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function setProfile(p) {
+    profile = p;
+    profileAt = Date.now();
+    if (p) { myName = p.name; }
+    renderAccount();
+    if (modalKind === 'shop') renderShop();
+    if (modalKind === 'squad' && !draftSquad) renderSquad();
+  }
+  socket.on('profile', (p) => setProfile(p));
+  socket.on('sessionExpired', () => {
+    session = null;
+    try { localStorage.removeItem('tlc_session'); } catch (e) { /* ignore */ }
+    setProfile(null);
+    toast('Сессия истекла — войдите снова', 'err');
+  });
+
+  function renderAccount() {
+    const bar = $('accountBar'), eb = $('econBar');
+    $('nameField').classList.toggle('hidden', !!profile);
+    if (!profile) {
+      bar.innerHTML = `<div class="acc-guest">Вы играете как гость — монеты, рудник и новые юниты доступны только с аккаунтом.</div>
+        <div class="acc-btns"><button id="btnLogin" class="btn small primary">Войти</button><button id="btnRegister" class="btn small">Регистрация</button></div>`;
+      $('btnLogin').onclick = () => openAuth('login');
+      $('btnRegister').onclick = () => openAuth('register');
+      eb.classList.add('hidden');
+      return;
+    }
+    const st = profile.stats;
+    bar.innerHTML = `<div class="acc-row"><span class="acc-name">👤 ${esc(profile.name)}</span><span id="coinBox" class="coins">${coinFmt(profile.coins)}</span>
+        <span class="acc-stats">🏆 ${st.wins} · ✖ ${st.losses}${st.streak > 1 ? ` · 🔥 ${st.streak}` : ''}</span></div>
+      <div class="acc-btns"><button id="btnShop" class="btn small primary">🛒 Магазин</button><button id="btnSquad" class="btn small primary">⚔ Отряд</button><button id="btnLogout" class="btn small">Выйти</button></div>`;
+    $('btnShop').onclick = () => openModal('shop');
+    $('btnSquad').onclick = () => openModal('squad');
+    $('btnLogout').onclick = () => {
+      if (!confirm('Выйти из аккаунта на этом устройстве?')) return;
+      socket.emit('logout', session);
+      session = null;
+      try { localStorage.removeItem('tlc_session'); } catch (e) { /* ignore */ }
+      setProfile(null);
+    };
+    eb.classList.remove('hidden');
+    renderEcon();
+  }
+
+  function renderEcon() {
+    if (!profile) return;
+    const d = profile.daily, m = profile.mine;
+    const rw = (i) => { const r = d.rewards[i]; return r === 'unit' ? 'юнит' : r + ' 💰'; };
+    const daily = d.canClaim
+      ? `<button id="btnDaily" class="btn small daily-btn">🎁 Забрать: день ${d.day} — ${rw(d.day - 1)}</button>`
+      : `<span class="econ-dim">🎁 День ${d.day}/7 получен. Завтра: ${rw(d.day % 7)}</span>`;
+    const left = Math.max(0, m.nextInMs - (Date.now() - profileAt));
+    const mm = Math.floor(left / 60000), ss = Math.floor((left % 60000) / 1000);
+    $('econBar').innerHTML = `<div class="econ-cell">${daily}</div>
+      <div class="econ-cell mine-cell"><span>⛏ Рудник ур.${m.level}: <b>${m.stored}</b>/${m.cap} 💰 <span class="econ-dim">· +${m.rate}/ч${m.full ? ' · склад полон!' : ` · через ${mm}:${String(ss).padStart(2, '0')}`}</span></span>
+        <button id="btnMine" class="btn small" ${m.stored > 0 ? '' : 'disabled'}>Собрать</button></div>`;
+    const db = $('btnDaily');
+    if (db) db.onclick = () => socket.emit('claimDaily', null, (r) => {
+      if (r.error) return toast(r.error, 'err');
+      Sound.legendary(false);
+      toast(r.unit ? `🎁 День ${r.day}: открыт юнит «${R.UNIT_TYPES[r.unit].name}»!` : `🎁 День ${r.day}: +${r.coins} 💰`);
+      setProfile(r.profile);
+      bumpCoins();
+    });
+    $('btnMine').onclick = () => socket.emit('collectMine', null, (r) => {
+      if (r.error) return toast(r.error, 'err');
+      Sound.pickup(2);
+      toast(`⛏ Собрано: +${r.amount} 💰`);
+      setProfile(r.profile);
+      bumpCoins();
+    });
+    if (left <= 0 && !m.full && Date.now() - profileAt > 2000) {
+      profileAt = Date.now();
+      socket.emit('profile', (p) => { if (p) setProfile(p); });
+    }
+  }
+  function bumpCoins() {
+    const c = $('coinBox');
+    if (!c) return;
+    c.classList.remove('bump'); void c.offsetWidth; c.classList.add('bump');
+  }
+  setInterval(() => { if (screenNow === 'menu' && profile) renderEcon(); }, 1000);
+
+  // ---- модальное окно
+  function openModal(kind) {
+    modalKind = kind;
+    draftSquad = null;
+    $('modal').classList.remove('hidden');
+    const box = $('modal').querySelector('.modal-box');
+    box.classList.remove('enter'); void box.offsetWidth; box.classList.add('enter');
+    if (kind === 'shop') renderShop();
+    if (kind === 'squad') renderSquad();
+  }
+  function closeModal() {
+    modalKind = null;
+    draftSquad = null;
+    $('modal').classList.add('hidden');
+  }
+  $('modalClose').onclick = closeModal;
+  $('modal').addEventListener('click', (e) => { if (e.target === $('modal')) closeModal(); });
+
+  function openAuth(kind) {
+    modalKind = 'auth';
+    $('modal').classList.remove('hidden');
+    const reg = kind === 'register';
+    $('modalBody').innerHTML = `<h2 class="modal-title">${reg ? 'РЕГИСТРАЦИЯ' : 'ВХОД'}</h2>
+      <form id="authForm" class="auth-form">
+        <label class="field">НИК<input id="authName" maxlength="16" autocomplete="username" spellcheck="false" value="${reg ? '' : esc(store.get(localStorage, 'tlc_last_login') || '')}"></label>
+        <label class="field">ПАРОЛЬ<input id="authPass" type="password" maxlength="64" autocomplete="${reg ? 'new-password' : 'current-password'}"></label>
+        ${reg ? '<label class="field">ПОВТОРИТЕ ПАРОЛЬ<input id="authPass2" type="password" maxlength="64" autocomplete="new-password"></label>' : ''}
+        <div id="authErr" class="auth-err"></div>
+        <button class="btn primary big" type="submit">${reg ? 'Создать аккаунт' : 'Войти'}</button>
+        <div class="auth-switch">${reg ? 'Уже есть аккаунт? <a href="#" id="authSwitch">Войти</a>' : 'Нет аккаунта? <a href="#" id="authSwitch">Зарегистрироваться</a>'}</div>
+        ${reg ? `<div class="econ-dim">Стартовый капитал: ${200} 💰. Пароль хранится в зашифрованном виде.</div>` : ''}
+      </form>`;
+    $('authSwitch').onclick = (e) => { e.preventDefault(); openAuth(reg ? 'login' : 'register'); };
+    setTimeout(() => (reg || !$('authName').value ? $('authName') : $('authPass')).focus(), 50);
+    $('authForm').onsubmit = (e) => {
+      e.preventDefault();
+      const name = $('authName').value.trim(), pass = $('authPass').value;
+      if (reg && pass !== $('authPass2').value) { $('authErr').textContent = 'Пароли не совпадают'; return; }
+      $('authErr').textContent = '…';
+      socket.emit(reg ? 'register' : 'login', { name, pass }, (r) => {
+        if (!r || r.error) { $('authErr').textContent = (r && r.error) || 'Ошибка'; Sound.error(); return; }
+        session = r.session;
+        store.set(localStorage, 'tlc_session', session);
+        store.set(localStorage, 'tlc_last_login', name);
+        closeModal();
+        setProfile(r.profile);
+        Sound.ready();
+        toast(reg ? `Добро пожаловать, ${r.profile.name}! +200 💰 на старт` : `С возвращением, ${r.profile.name}!`);
+      });
+    };
+  }
+
+  function unitStatsLine(t) {
+    const T = R.UNIT_TYPES[t];
+    return `❤ ${T.hp} · 👣 ${T.move} · ⚔ ${T.dmg} · 🎯 ${T.minRange > 1 ? T.minRange + '–' : ''}${T.range}`;
+  }
+  function spriteCanvas(type, side, size) {
+    const cv = document.createElement('canvas');
+    drawSpriteTo(cv, type, side, size);
+    return cv;
+  }
+  function mountSprites(root) {
+    for (const el of root.querySelectorAll('[data-sprite]')) {
+      el.replaceWith(spriteCanvas(el.dataset.sprite, el.dataset.side || 'blue', Number(el.dataset.size) || 48));
+    }
+  }
+
+  function renderShop() {
+    if (!profile) return closeModal();
+    const m = profile.mine;
+    const units = R.SHOP_UNITS.map((t) => {
+      const T = R.UNIT_TYPES[t];
+      const own = profile.unlocked.includes(t);
+      const can = profile.coins >= T.price;
+      return `<div class="shop-item${own ? ' owned' : ''}">
+        <span data-sprite="${t}" data-size="56"></span>
+        <div class="shop-info"><div class="shop-name">${T.name} <span class="cost-tag">${T.cost} оч.</span></div>
+          <div class="shop-stats">${unitStatsLine(t)}</div><div class="shop-desc">${T.desc}</div></div>
+        ${own ? '<div class="owned-tag">✔ Открыт</div>' : `<button class="btn small ${can ? 'primary' : ''}" data-buy="${t}" ${can ? '' : 'disabled'}>${T.price} 💰</button>`}
+      </div>`;
+    }).join('');
+    $('modalBody').innerHTML = `<h2 class="modal-title">🛒 МАГАЗИН <span class="coins">${coinFmt(profile.coins)}</span></h2>
+      <h3>// ЮНИТЫ</h3><div class="shop-list">${units}</div>
+      <h3>// РУДНИК</h3>
+      <div class="shop-item"><div class="mine-icon">⛏</div>
+        <div class="shop-info"><div class="shop-name">Рудник — уровень ${m.level}</div>
+          <div class="shop-desc">Добывает ${m.rate} 💰 в час, копит до ${profile.mine.cap} 💰 (8 часов).${m.upgradePrice ? ` Следующий уровень: ${[20, 35, 55, 80, 120][m.level]} 💰/ч.` : ' Максимальный уровень.'}</div></div>
+        ${m.upgradePrice ? `<button id="btnUpMine" class="btn small ${profile.coins >= m.upgradePrice ? 'primary' : ''}" ${profile.coins >= m.upgradePrice ? '' : 'disabled'}>${m.upgradePrice} 💰</button>` : '<div class="owned-tag">МАКС.</div>'}
+      </div>`;
+    mountSprites($('modalBody'));
+    for (const b of $('modalBody').querySelectorAll('[data-buy]')) {
+      b.onclick = () => {
+        const t = b.dataset.buy;
+        if (!confirm(`Открыть «${R.UNIT_TYPES[t].name}» за ${R.UNIT_TYPES[t].price} 💰?`)) return;
+        socket.emit('buyUnit', t, (r) => {
+          if (r.error) { toast(r.error, 'err'); Sound.error(); return; }
+          Sound.legendary(false);
+          toast(`Открыт: ${R.UNIT_TYPES[t].name}! Добавьте его в отряд.`);
+          setProfile(r.profile);
+          bumpCoins();
+        });
+      };
+    }
+    const um = $('btnUpMine');
+    if (um) um.onclick = () => socket.emit('upgradeMine', null, (r) => {
+      if (r.error) { toast(r.error, 'err'); Sound.error(); return; }
+      Sound.pickup(3);
+      toast(`⛏ Рудник улучшен до уровня ${r.level}!`);
+      setProfile(r.profile);
+    });
+  }
+
+  function renderSquad() {
+    if (!profile) return closeModal();
+    if (!draftSquad) draftSquad = profile.squad.slice();
+    const avail = R.BASIC_UNITS.concat(R.SHOP_UNITS.filter((t) => profile.unlocked.includes(t)));
+    const cost = R.squadCost(draftSquad);
+    const err = R.squadError(draftSquad, profile.unlocked);
+    const pct = Math.min(100, (cost / R.SQUAD_BUDGET) * 100);
+    const members = ['commander'].concat(draftSquad).map((t, i) => `<div class="sq-member">
+        <span data-sprite="${t}" data-size="48"></span><div class="sq-name">${R.UNIT_TYPES[t].name}</div>
+        <div class="sq-cost">${i ? R.UNIT_TYPES[t].cost + ' оч.' : 'всегда'}</div>
+        ${i ? `<button class="sq-del" data-del="${i - 1}" title="Убрать">✕</button>` : ''}</div>`).join('');
+    const empties = Array.from({ length: R.SQUAD_MAX - draftSquad.length }, () => '<div class="sq-member empty">пусто</div>').join('');
+    const pool = avail.map((t) => {
+      const T = R.UNIT_TYPES[t];
+      const can = draftSquad.length < R.SQUAD_MAX && cost + T.cost <= R.SQUAD_BUDGET;
+      return `<button class="sq-pick" data-add="${t}" ${can ? '' : 'disabled'} title="${esc(T.desc)}">
+        <span data-sprite="${t}" data-size="40"></span><span class="sq-pname">${T.name}</span><span class="cost-tag">${T.cost}</span></button>`;
+    }).join('');
+    const locked = R.SHOP_UNITS.filter((t) => !profile.unlocked.includes(t)).length;
+    $('modalBody').innerHTML = `<h2 class="modal-title">⚔ ОТРЯД</h2>
+      <div class="budget"><span>Очки отряда: <b>${cost}</b> / ${R.SQUAD_BUDGET}</span><div class="budget-bar"><div style="width:${pct}%"></div></div></div>
+      <div class="sq-members">${members}${empties}</div>
+      <h3>// ДОСТУПНЫЕ БОЙЦЫ (нажмите, чтобы добавить)</h3>
+      <div class="sq-pool">${pool}</div>
+      ${locked ? `<div class="econ-dim">Ещё ${locked} юнит(ов) можно открыть в магазине.</div>` : ''}
+      <div id="sqErr" class="auth-err">${err || ''}</div>
+      <div class="btn-row"><button id="btnSqReset" class="btn small">По умолчанию</button><button id="btnSqSave" class="btn primary" ${err ? 'disabled' : ''}>Сохранить отряд</button></div>`;
+    mountSprites($('modalBody'));
+    for (const b of $('modalBody').querySelectorAll('[data-add]')) b.onclick = () => { draftSquad.push(b.dataset.add); Sound.select(); renderSquad(); };
+    for (const b of $('modalBody').querySelectorAll('[data-del]')) b.onclick = () => { draftSquad.splice(Number(b.dataset.del), 1); Sound.unready(); renderSquad(); };
+    $('btnSqReset').onclick = () => { draftSquad = R.DEFAULT_SQUAD.slice(); renderSquad(); };
+    $('btnSqSave').onclick = () => socket.emit('setSquad', draftSquad, (r) => {
+      if (r.error) { $('sqErr').textContent = r.error; Sound.error(); return; }
+      Sound.ready();
+      toast('Отряд сохранён');
+      draftSquad = null;
+      setProfile(r.profile);
+      closeModal();
+    });
   }
 
   // ------------------------------------------------------------ очередь событий → анимации
@@ -253,7 +498,7 @@
 
   // ---- окошко «Осталось ходов» под доской
   function movesLeft() {
-    const own = view.units.filter((u) => u.alive && u.side === view.turn);
+    const own = view.units.filter((u) => u.alive && u.side === view.turn && !R.UNIT_TYPES[u.type].static);
     let n = 0;
     const slots = [];
     for (let i = 0; i < 2; i++) {
@@ -348,6 +593,7 @@
         const dur = addProjectile(e.from, e.to, e.kind, e.side);
         if (e.kind === 'shotgun') Sound.shotgun();
         else if (e.kind === 'sniper') Sound.sniper();
+        else if (e.kind === 'grenade') { Sound.jet(); setTimeout(() => Sound.explosion(false), dur - 30); }
         else Sound.laser();
         burst(cellCenter(e.from.x, e.from.y), 5, ['#fff', '#facc15'], 1.2);
         await wait(dur);
@@ -431,6 +677,26 @@
         await wait(250);
         return;
       }
+      case 'spawn': {
+        view.units.push(clone(e.unit));
+        burst(cellCenter(e.unit.x, e.unit.y), 14, ['#facc15', '#9ca3af', '#fff'], 1.6);
+        Sound.crate();
+        await wait(250);
+        return;
+      }
+      case 'boost': {
+        if (!u) return;
+        u.boost = e.amount;
+        addFloat(`+${e.amount} ХОД`, u.x, u.y, '#22d3ee');
+        ring(cellCenter(u.x, u.y), '#22d3ee');
+        Sound.turn();
+        await wait(250);
+        return;
+      }
+      case 'aura': {
+        if (u) addFloat('ЩИТ −1', u.x, u.y, '#93c5fd');
+        return;
+      }
       case 'itemchange': {
         if (u) u.item = e.item || null;
         return;
@@ -477,7 +743,7 @@
   // ------------------------------------------------------------ эффекты
   function addProjectile(from, to, kind, side) {
     const d = Math.hypot(to.x - from.x, to.y - from.y);
-    const dur = kind === 'sniper' ? 110 : kind === 'shotgun' ? 130 : Math.round(80 + d * 45);
+    const dur = kind === 'sniper' ? 110 : kind === 'shotgun' ? 130 : kind === 'grenade' ? 380 : Math.round(80 + d * 45);
     projectiles.push({ from, to, kind, side, t0: nowMs(), dur });
     return dur;
   }
@@ -508,7 +774,9 @@
     deadline = nowMs() + (state.turnLeftMs || 0);
     if (selectedId && !selUnit()) selectedId = null;
     const su = selUnit();
-    if (mode !== 'normal') {
+    if (mode === 'ability') {
+      if (!su || su.side !== actingSide() || !R.abilityTargets(view, su).length) mode = 'normal';
+    } else if (mode !== 'normal') {
       const need = { shotgun: 'shotgun', jetpack: 'jetpack', mine: 'landmine' }[mode];
       if (!su || !su.item || su.item.type !== need || su.side !== actingSide()) mode = 'normal';
     }
@@ -556,6 +824,7 @@
   function renderMenu() {
     const ni = $('nameInput');
     if (document.activeElement !== ni) ni.value = myName;
+    renderAccount();
   }
   function refreshRooms() {
     if (!socket.connected || screenNow !== 'menu') return;
@@ -654,10 +923,15 @@
       else { st.textContent = '… Не готов'; st.classList.add('st-wait'); }
       el.append(title, nm, st);
       if (s) {
-        const cv = document.createElement('canvas');
-        cv.className = 'slot-sprite';
-        drawSpriteTo(cv, 'commander', side, 48);
-        el.appendChild(cv);
+        const row = document.createElement('div');
+        row.className = 'squad-row';
+        for (const t of ['commander'].concat(s.squad || R.DEFAULT_SQUAD)) {
+          const cv = spriteCanvas(t, side, 30);
+          cv.title = R.UNIT_TYPES[t] ? R.UNIT_TYPES[t].name : t;
+          row.appendChild(cv);
+        }
+        el.appendChild(row);
+        if (s.account) title.insertAdjacentHTML('beforeend', ' <span class="acc-tag" title="Играет с аккаунтом">💰</span>');
       }
       el.classList.toggle('is-free', !s);
       el.classList.toggle('is-ready', !!(s && s.ready));
@@ -798,7 +1072,9 @@
     const it = u.item ? R.ITEMS[u.item.type] : null;
     const rar = u.item ? R.RARITIES[u.item.tier || 0] : null;
     let status = '';
-    if (u.side === view.turn && !view.winner) {
+    if (T.static) {
+      status = '<div class="status-row"><span class="pip ok">Стреляет сама в конце хода</span></div>';
+    } else if (u.side === view.turn && !view.winner) {
       const usable = R.canUseUnit(view, u);
       status = usable
         ? `<div class="status-row"><span class="pip ${R.canMove(view, u) ? 'ok' : 'no'}">Движение</span><span class="pip ${R.canAct(view, u) ? 'ok' : 'no'}">Действие</span>${u.type === 'sniper' ? '<span class="pip ' + (R.canShoot(view, u) ? 'ok' : 'no') + '">Выстрел</span>' : ''}</div>`
@@ -808,6 +1084,12 @@
     if (u.slowed) deb += '<div class="debuff">⚠ Контузия: −1 к движению в этот ход</div>';
     if (u.slowNext) deb += '<div class="debuff">⚠ Контузия: −1 к движению в следующий ход</div>';
     let btns = '';
+    const AB = { heal: ['Лечить', 'Выберите раненого союзника рядом'], boost: ['Ускорить союзника', 'Выберите союзника в радиусе 2'], turret: ['Поставить турель', 'Выберите клетку рядом'] };
+    if (own && T.ability && !view.winner) {
+      const ok = R.abilityTargets(view, u).length > 0;
+      const active = mode === 'ability';
+      btns += `<div class="card-btns"><button id="btnAbility" class="btn ${active ? 'active' : 'primary'}" ${ok && canInput() ? '' : 'disabled'}>${active ? 'Отмена' : '★ ' + AB[T.ability][0]}</button></div>`;
+    }
     if (own && it && it.active && !view.winner) {
       const modeKey = { shotgun: 'shotgun', jetpack: 'jetpack', landmine: 'mine' }[u.item.type];
       let ok = false;
@@ -815,7 +1097,7 @@
       if (modeKey === 'jetpack') ok = R.canMove(view, u) && R.jetpackCells(view, u).length > 0;
       if (modeKey === 'mine') ok = R.canAct(view, u) && R.mineCells(view, u).length > 0;
       const active = mode === modeKey;
-      btns = `<div class="card-btns"><button id="btnItem" class="btn ${active ? 'active' : 'primary'}" ${ok && canInput() ? '' : 'disabled'} data-mode="${modeKey}">${active ? 'Отмена' : 'Активировать: ' + it.name}</button></div>`;
+      btns += `<div class="card-btns"><button id="btnItem" class="btn ${active ? 'active' : 'primary'}" ${ok && canInput() ? '' : 'disabled'} data-mode="${modeKey}">${active ? 'Отмена' : 'Активировать: ' + it.name}</button></div>`;
     }
     el.innerHTML = `
       <div class="card-head">
@@ -833,7 +1115,7 @@
         <div class="stat"><b>${T.minRange > 1 ? T.minRange + '–' : ''}${T.range}</b><small>ДАЛЬН.</small></div>
       </div>
       ${status}${deb}
-      <div class="u-desc">${T.desc}</div>
+      <div class="u-desc">${T.desc}${T.stealth ? (R.isHidden(view, u) ? ' <b style="color:#4ade80">Сейчас скрыт.</b>' : ' <b style="color:#facc15">Сейчас виден врагу.</b>') : ''}${u.boost ? ` <b style="color:#22d3ee">+${u.boost} к движению в этот ход.</b>` : ''}</div>
       <div class="item-box">
         <canvas id="itemIcon"></canvas>
         <div>${it ? `<div class="item-name" style="color:${rar.color}">${it.name}${(u.item.charges || 1) > 1 ? ` ×${u.item.charges}` : ''}</div><div class="rarity-tag r${u.item.tier || 0}">${R.rarityName(u.item.type, u.item.tier).toUpperCase()}</div><div class="item-desc">${R.itemDesc(u.item)}</div>` : '<div class="item-empty">Слот снаряжения пуст.<br>Подберите ящик с лутом.</div>'}</div>
@@ -843,6 +1125,14 @@
     const ic = $('itemIcon');
     if (it) { drawSpriteTo(ic, 'i_' + u.item.type, null, 32); ic.style.borderColor = rar.color; }
     else { ic.width = 1; ic.height = 1; ic.style.width = '34px'; ic.style.height = '34px'; }
+    const ab = $('btnAbility');
+    if (ab) ab.onclick = () => {
+      Sound.unlock();
+      mode = mode === 'ability' ? 'normal' : 'ability';
+      Sound.select();
+      if (mode === 'ability') toast(AB[T.ability][1]);
+      renderCard();
+    };
     const b = $('btnItem');
     if (b) b.onclick = () => {
       Sound.unlock();
@@ -901,6 +1191,15 @@
     $('btnToLobby').disabled = !view.you;
     $('btnToLobby').classList.toggle('hidden', view.you === 'both');
     $('overSub').textContent = sub;
+    const rw = state.rewards, ore = $('overReward');
+    let rt = '', rc = '';
+    if (rw && rw.note) { rt = rw.note; rc = 'dim'; }
+    else if (rw && (view.you === 'blue' || view.you === 'red') && rw[view.you] != null) {
+      const d = rw[view.you];
+      rt = d >= 0 ? `+${d} 💰` : `−${-d} 💰`; rc = d >= 0 ? 'plus' : 'minus';
+    }
+    ore.textContent = rt;
+    ore.className = 'over-reward ' + rc;
     if (overShownFor !== state.gameId) {
       overShownFor = state.gameId;
       overHidden = false;
@@ -939,6 +1238,11 @@
     if (!side || animating || pending) { select(cu ? cu.id : null); return; }
     const own = su && su.side === side;
     if (own && mode !== 'normal') {
+      if (mode === 'ability') {
+        if (R.abilityTargets(view, su).some((p) => p.x === c.x && p.y === c.y)) sendAction({ type: 'ability', unitId: su.id, x: c.x, y: c.y });
+        else cancel();
+        return;
+      }
       if (mode === 'jetpack') {
         if (R.jetpackCells(view, su).some((p) => p.x === c.x && p.y === c.y)) sendAction({ type: 'jetpack', unitId: su.id, x: c.x, y: c.y });
         else cancel();
@@ -970,9 +1274,9 @@
         toast(inf.reason, 'err'); Sound.error();
         return;
       }
-      if (R.canMove(view, su) && !(c.x === su.x && c.y === su.y)) {
-        const reach = R.reachable(view, su);
-        if (reach.has(R.key(c.x, c.y))) { sendAction({ type: 'move', unitId: su.id, x: c.x, y: c.y }); return; }
+      if (R.canMove(view, su) && R.moveCells(view, su).some((p) => p.x === c.x && p.y === c.y)) {
+        sendAction({ type: 'move', unitId: su.id, x: c.x, y: c.y });
+        return;
       }
       select(null);
       return;
@@ -1153,9 +1457,7 @@
     const pulse = 0.5 + 0.5 * Math.sin(now / 180);
     if (mode === 'normal') {
       if (R.canMove(view, su)) {
-        for (const k of R.reachable(view, su).keys()) {
-          const x = k % N, y = Math.floor(k / N);
-          if (x === su.x && y === su.y) continue;
+        for (const { x, y } of R.moveCells(view, su)) {
           fillCell(x, y, 'rgba(34,211,238,0.16)');
           frameCell(x, y, 'rgba(34,211,238,0.35)', S, S);
         }
@@ -1164,7 +1466,7 @@
         const T = R.UNIT_TYPES[su.type];
         for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
           const d = R.cheb(su, { x, y });
-          if (d < T.minRange || d > T.range || R.isWall(view, x, y) || !R.hasLOS(view, su, { x, y })) continue;
+          if (d < T.minRange || d > T.range || R.isWall(view, x, y) || (!T.lob && !R.hasLOS(view, su, { x, y }))) continue;
           ctx.fillStyle = 'rgba(248,113,113,0.35)';
           ctx.fillRect(fx(x) * C + C / 2 - S, fx(y) * C + C / 2 - S, 2 * S, 2 * S);
         }
@@ -1172,6 +1474,11 @@
         if (su.item && su.item.type === 'shotgun') {
           for (const t of R.targets(view, su, 'shotgun')) frameCell(t.x, t.y, `rgba(251,146,60,${0.55 + 0.45 * pulse})`, S, S * 2);
         }
+      }
+    } else if (mode === 'ability') {
+      for (const c of R.abilityTargets(view, su)) {
+        fillCell(c.x, c.y, 'rgba(74,222,128,0.2)');
+        frameCell(c.x, c.y, `rgba(74,222,128,${0.45 + 0.4 * pulse})`, S, S);
       }
     } else if (mode === 'jetpack') {
       for (const c of R.jetpackCells(view, su)) {
@@ -1242,10 +1549,12 @@
       ctx.fillRect(gx + 4 * S, gy + 15 * S, 8 * S, S);
 
       let alpha = 1;
-      if (u.side === view.turn && !view.winner) {
+      const stat = R.UNIT_TYPES[u.type].static;
+      if (u.side === view.turn && !view.winner && !stat) {
         if (!R.canUseUnit(view, u)) alpha = 0.45;
         else if (view.activated.includes(u.id) && !R.canMove(view, u) && !R.canAct(view, u)) alpha = 0.5;
       }
+      if (R.isHidden(view, u)) alpha *= 0.45 + 0.1 * Math.sin(now / 300); // свой скрытый диверсант
       ctx.globalAlpha = alpha;
       const flash = (flashes.get(u.id) || 0) > now;
       ctx.drawImage(Sprites.get(u.type, u.side, flash ? 'flash' : ''), gx, py, C, C);
@@ -1401,6 +1710,14 @@
         pixLine(a.x, a.y, hx, hy, S, '#fde68a', 1);
         ctx.fillStyle = '#fff';
         ctx.fillRect(snap(hx - S * 1.5), snap(hy - S * 1.5), 3 * S, 3 * S);
+      } else if (p.kind === 'grenade') {
+        const z = Math.sin(t * Math.PI) * C * 1.3;
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(snap(hx - S), snap(hy - S), 2 * S, 2 * S);
+        ctx.fillStyle = '#111';
+        ctx.fillRect(snap(hx - 2 * S), snap(hy - z - 2 * S), 4 * S, 4 * S);
+        ctx.fillStyle = '#15803d';
+        ctx.fillRect(snap(hx - S), snap(hy - z - S), 2 * S, 2 * S);
       } else if (p.kind === 'shotgun') {
         const ang = Math.atan2(b.y - a.y, b.x - a.x);
         const len = Math.hypot(b.x - a.x, b.y - a.y) * t;

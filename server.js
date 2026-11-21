@@ -6,6 +6,7 @@ const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
 const R = require('./public/shared.js');
+const A = require('./accounts.js');
 
 const PORT = Number(process.env.PORT) || 3000;
 const N = R.N;
@@ -95,7 +96,10 @@ function createGame(room) {
   };
   Object.defineProperty(g, 'room', { value: room }); // не сериализуется
   generateWalls(g);
-  placeUnits(g);
+  placeUnits(g, {
+    blue: room.slots.blue && room.slots.blue.squad,
+    red: room.slots.red && room.slots.red.squad,
+  });
   spawnInitialCrates(g);
   addLog(g, 'Матч начался! Цель — уничтожить вражеского Командира.', 'sys');
   addLog(g, '— Раунд 1: ход Синих', 'turn');
@@ -145,21 +149,25 @@ function generateWalls(g) {
   g.walls = [{ x: 2, y: 3 }, { x: 5, y: 4 }, { x: 5, y: 2 }, { x: 2, y: 5 }];
 }
 
-const LAYOUT = [
-  ['sniper', 1, 7], ['commander', 3, 7], ['sniper', 6, 7],
-  ['assault', 2, 6], ['scout', 4, 6], ['assault', 5, 6],
-];
-function placeUnits(g) {
+// Позиции отряда (для Синих; Красные — зеркально): Командир в центре заднего ряда
+const COMMANDER_POS = [3, 7];
+const SQUAD_POS = [[1, 7], [6, 7], [2, 6], [5, 6], [4, 6]];
+function makeUnit(g, id, type, side, x, y) {
+  const T = R.UNIT_TYPES[type];
+  const u = {
+    id, type, side, x, y, hp: T.hp, maxHp: T.hp, alive: true, item: null,
+    moved: false, acted: false, attacked: false, slowed: false, slowNext: false, boost: 0, revealUntil: null,
+  };
+  g.units.push(u);
+  return u;
+}
+function placeUnits(g, squads) {
   for (const side of SIDES) {
-    LAYOUT.forEach(([type, x, y], i) => {
-      const T = R.UNIT_TYPES[type];
+    const list = [['commander', ...COMMANDER_POS]].concat((squads[side] || R.DEFAULT_SQUAD).slice(0, R.SQUAD_MAX).map((t, i) => [t, ...SQUAD_POS[i]]));
+    list.forEach(([type, x, y], i) => {
       const px = side === 'blue' ? x : N - 1 - x;
       const py = side === 'blue' ? y : N - 1 - y;
-      g.units.push({
-        id: (side === 'blue' ? 'b' : 'r') + i, type, side, x: px, y: py,
-        hp: T.hp, maxHp: T.hp, alive: true, item: null,
-        moved: false, acted: false, attacked: false, slowed: false, slowNext: false,
-      });
+      makeUnit(g, (side === 'blue' ? 'b' : 'r') + i, type, side, px, py);
     });
   }
 }
@@ -224,6 +232,11 @@ const label = (u) => `${SIDE_ADJ[u.side]} ${R.UNIT_TYPES[u.type].name}`;
 // ---------------------------------------------------------------- Механики
 function damage(g, t, amount) {
   if (!t.alive || amount <= 0) return 0;
+  // аура Щитоносца: −1 урона союзникам вокруг (но не меньше 1)
+  if (amount > 1 && g.units.some((o) => o.alive && o !== t && o.side === t.side && R.UNIT_TYPES[o.type].aura && R.cheb(o, t) <= 1)) {
+    amount -= 1;
+    ev(g, 'aura', { unitId: t.id });
+  }
   if (t.item && t.item.type === 'shield') {
     const heal = R.itemStat('shield', t.item.tier, 'heal');
     t.item.charges--;
@@ -351,7 +364,7 @@ function actMove(g, side, a) {
   if (!u) return 'Юнит недоступен';
   if (!R.canMove(g, u)) return u.type === 'sniper' && u.attacked ? 'Снайпер уже стрелял и не может двигаться' : 'Этот юнит не может двигаться';
   const x = toInt(a.x), y = toInt(a.y);
-  if (!R.inBounds(x, y) || (x === u.x && y === u.y)) return 'Неверная клетка';
+  if (!R.inBounds(x, y) || (x === u.x && y === u.y) || R.isWall(g, x, y)) return 'Неверная клетка';
   const prev = R.reachable(g, u);
   const path = R.pathTo(prev, x, y);
   if (!path) return 'Клетка недостижима';
@@ -361,28 +374,105 @@ function actMove(g, side, a) {
   return null;
 }
 
+function reveal(g, u) {
+  if (R.UNIT_TYPES[u.type].stealth) u.revealUntil = g.turnNo + 1; // виден до конца хода соперника
+}
+function pushAway(g, from, t) {
+  if (!t.alive) return;
+  const tx = t.x, ty = t.y;
+  const nx = tx + Math.sign(tx - from.x), ny = ty + Math.sign(ty - from.y);
+  if (R.inBounds(nx, ny) && !R.isWall(g, nx, ny) && !R.unitAt(g, nx, ny)) {
+    t.x = nx; t.y = ny;
+    ev(g, 'knockback', { unitId: t.id, from: { x: tx, y: ty }, to: { x: nx, y: ny } });
+    addLog(g, `${label(t)} отброшен назад`, 'atk');
+    enterCell(g, t, null);
+  }
+}
+
 function actAttack(g, side, a) {
   const u = getOwnUnit(g, side, a.unitId);
   const t = g.units.find((x) => x.id === a.targetId && x.alive);
-  if (!u || !t) return 'Неверная цель';
+  if (!u || !t || R.isHidden(g, t)) return 'Неверная цель';
   const info = R.attackInfo(g, u, t, 'normal');
   if (!info.ok) return info.reason;
   activate(g, u);
   u.acted = true; u.attacked = true;
-  ev(g, 'shot', { unitId: u.id, from: { x: u.x, y: u.y }, to: { x: t.x, y: t.y }, kind: u.type === 'sniper' ? 'sniper' : 'laser', side: u.side });
-  addLog(g, `${label(u)} атакует: ${label(t)}`, 'atk');
-  damage(g, t, info.dmg);
+  reveal(g, u);
+  const T = R.UNIT_TYPES[u.type];
+  const kind = u.type === 'sniper' ? 'sniper' : T.lob ? 'grenade' : 'laser';
+  ev(g, 'shot', { unitId: u.id, from: { x: u.x, y: u.y }, to: { x: t.x, y: t.y }, kind, side: u.side });
+  addLog(g, `${label(u)} ${T.lob ? 'бросает гранату в' : 'атакует:'} ${label(t)}`, 'atk');
+  if (T.lob) {
+    const tx = t.x, ty = t.y;
+    ev(g, 'explosion', { x: tx, y: ty, big: false });
+    const splash = g.units.filter((o) => o.alive && o !== t && o.side !== u.side && R.cheb(o, { x: tx, y: ty }) === 1);
+    damage(g, t, info.dmg);
+    for (const o of splash) damage(g, o, 1);
+  } else {
+    damage(g, t, info.dmg);
+    if (T.knockback) pushAway(g, u, t);
+  }
   return null;
+}
+
+// Способности: Медик — лечение, Связист — ускорение, Инженер — турель
+function actAbility(g, side, a) {
+  const u = getOwnUnit(g, side, a.unitId);
+  if (!u) return 'Юнит недоступен';
+  const ab = R.UNIT_TYPES[u.type].ability;
+  if (!ab) return 'У юнита нет способности';
+  if (!R.canAct(g, u)) return 'Действие уже потрачено';
+  const x = toInt(a.x), y = toInt(a.y);
+  const cell = R.abilityTargets(g, u).find((c) => c.x === x && c.y === y);
+  if (!cell) return 'Сюда применить нельзя';
+  activate(g, u);
+  u.acted = true;
+  if (ab === 'heal') {
+    const t = R.unitAt(g, x, y);
+    const before = t.hp;
+    t.hp = Math.min(t.maxHp, t.hp + R.HEAL_AMOUNT);
+    ev(g, 'heal', { unitId: t.id, amount: t.hp - before, hp: t.hp });
+    addLog(g, `✚ ${label(u)} лечит ${label(t)}: +${t.hp - before} HP`, 'heal');
+  } else if (ab === 'boost') {
+    const t = R.unitAt(g, x, y);
+    t.boost = R.BOOST_AMOUNT;
+    ev(g, 'boost', { unitId: t.id, amount: R.BOOST_AMOUNT });
+    addLog(g, `📡 ${label(u)} даёт ${label(t)} +${R.BOOST_AMOUNT} к движению`, 'sys');
+  } else if (ab === 'turret') {
+    const t = makeUnit(g, u.side[0] + 't' + (g.seq++), 'turret', u.side, x, y);
+    t.owner = u.id;
+    ev(g, 'spawn', { unit: Object.assign({}, t) });
+    addLog(g, `🔧 ${label(u)} ставит турель`, 'sys');
+  }
+  return null;
+}
+
+// Турели стреляют в конце хода своей команды по самому раненому врагу в радиусе
+function turretsFire(g, side) {
+  for (const tu of g.units) {
+    if (!tu.alive || tu.side !== side || tu.type !== 'turret') continue;
+    const T = R.UNIT_TYPES.turret;
+    const foes = g.units.filter((o) => o.alive && o.side !== side && !R.isHidden(g, o) &&
+      R.cheb(o, tu) >= T.minRange && R.cheb(o, tu) <= T.range && R.hasLOS(g, tu, o));
+    if (!foes.length) continue;
+    foes.sort((a, b) => a.hp - b.hp);
+    const t = foes[0];
+    ev(g, 'shot', { unitId: tu.id, from: { x: tu.x, y: tu.y }, to: { x: t.x, y: t.y }, kind: 'laser', side });
+    addLog(g, `${label(tu)} открывает огонь по ${label(t)}`, 'atk');
+    damage(g, t, T.dmg);
+  }
 }
 
 function actShotgun(g, side, a) {
   const u = getOwnUnit(g, side, a.unitId);
   const t = g.units.find((x) => x.id === a.targetId && x.alive);
   if (!u || !t) return 'Неверная цель';
+  if (R.isHidden(g, t)) return 'Неверная цель';
   const info = R.attackInfo(g, u, t, 'shotgun');
   if (!info.ok) return info.reason;
   activate(g, u);
   u.acted = true; u.attacked = true;
+  reveal(g, u);
   const splashDmg = R.itemStat('shotgun', u.item.tier, 'splash');
   const after = useCharge(u);
   const tx = t.x, ty = t.y;
@@ -444,9 +534,11 @@ function actMine(g, side, a) {
 function endTurn(g, reason) {
   const side = g.turn;
   if (reason === 'timeout') addLog(g, `⏱ Время ${SIDE_GEN[side]} истекло — ход передан`, 'sys');
+  turretsFire(g, side);
+  if (checkWinner(g, side)) return;
   for (const u of g.units) {
     if (u.side !== side) continue;
-    u.moved = false; u.acted = false; u.attacked = false; u.slowed = false;
+    u.moved = false; u.acted = false; u.attacked = false; u.slowed = false; u.boost = 0;
   }
   g.activated = [];
   if (side === 'red') {
@@ -492,10 +584,14 @@ function finishGame(g, surrendered) {
   if (surrendered) addLog(g, `🏳 ${SIDE_NAME[surrendered]} сдаются`, 'sys');
   ev(g, 'gameover', { winner: g.winner });
   addLog(g, `🏆 ПОБЕДА: ${SIDE_NAME[g.winner]}!`, 'win');
+  settleRewards(room, g);
 }
 
 function performAction(g, side, a) {
   g.events = [];
+  const logStart = g.log.length;
+  const actor = typeof a.unitId === 'string' ? g.units.find((x) => x.id === a.unitId && x.side === side) : null;
+  const hiddenBefore = !!(actor && R.isHidden(g, actor));
   let err = null;
   try {
     switch (a.type) {
@@ -504,6 +600,7 @@ function performAction(g, side, a) {
       case 'shotgun': err = actShotgun(g, side, a); break;
       case 'jetpack': err = actJetpack(g, side, a); break;
       case 'mine': err = actMine(g, side, a); break;
+      case 'ability': err = actAbility(g, side, a); break;
       case 'endTurn': endTurn(g, 'manual'); break;
       default: err = 'Неизвестное действие';
     }
@@ -513,6 +610,12 @@ function performAction(g, side, a) {
   } catch (e) {
     console.error('Ошибка обработки действия:', e);
     err = 'Внутренняя ошибка сервера';
+  }
+  // Скрытый Диверсант: противник не видит его перемещений и находок
+  if (!err && actor && actor.alive && (hiddenBefore || R.isHidden(g, actor))) {
+    const own = ['move', 'jetpack', 'pickup', 'heal', 'luck', 'itemchange', 'crate'];
+    for (const e of g.events) if (e.unitId === actor.id && own.includes(e.type) && e.vis === 'all') e.vis = side;
+    if (R.isHidden(g, actor)) for (let i = logStart; i < g.log.length; i++) if (g.log[i].vis === 'all') g.log[i].vis = side;
   }
   const events = g.events;
   g.events = null;
@@ -552,7 +655,8 @@ function stateFor(room, viewer) {
     activated: g.activated.slice(),
     winner: g.winner,
     walls: g.walls.map((w) => ({ x: w.x, y: w.y })),
-    units: g.units.map((u) => Object.assign({}, u, { item: itemCopy(u.item) })),
+    units: g.units.filter((u) => seeAll || u.side === viewer || !R.isHidden(g, u))
+      .map((u) => Object.assign({}, u, { item: itemCopy(u.item) })),
     luck: Object.assign({}, g.luck),
     luckBuff: { blue: g.luckBuff.blue && Object.assign({}, g.luckBuff.blue), red: g.luckBuff.red && Object.assign({}, g.luckBuff.red) },
     crates: g.crates.map((c) => ({ id: c.id, x: c.x, y: c.y })), // содержимое ящика скрыто
@@ -561,6 +665,7 @@ function stateFor(room, viewer) {
       .map((l) => ({ id: l.id, text: l.text, cls: l.cls, tier: l.tier })),
     players: { blue: pl('blue'), red: pl('red') },
     rematch: Object.assign({}, room.rematch),
+    rewards: room.phase === 'over' ? room.rewards : null,
   };
 }
 function eventsFor(viewer, events) {
@@ -579,7 +684,7 @@ function broadcastState(room, events) {
   }
 }
 function lobbyFor(socket, room) {
-  const pub = (s) => (s ? { name: s.name, ready: s.ready, connected: s.connected } : null);
+  const pub = (s) => (s ? { name: s.name, ready: s.ready, connected: s.connected, squad: s.squad, account: !!s.playerId } : null);
   return {
     code: room.code, phase: room.phase, solo: room.solo, you: viewerOf(socket, room),
     slots: { blue: pub(room.slots.blue), red: pub(room.slots.red) },
@@ -592,6 +697,7 @@ function emitLobby(room) {
 function startGame(room, solo) {
   clearTimeout(room.turnTimer);
   room.solo = solo;
+  room.rewards = null;
   room.game = createGame(room);
   room.game.turnEndsAt += START_DELAY_MS; // первый ход начинается после отсчёта
   room.phase = 'game';
@@ -611,6 +717,50 @@ function surrender(room, loser) {
   const events = g.events;
   g.events = null;
   broadcastState(room, events);
+}
+
+// ---------------------------------------------------------------- Награды и профиль
+function socketsOfPlayer(playerId) {
+  const out = [];
+  for (const [id, info] of socketsInfo) if (info.playerId === playerId) { const s = io.sockets.sockets.get(id); if (s) out.push(s); }
+  return out;
+}
+function emitProfile(playerId) {
+  const p = A.peek(playerId);
+  if (!p) return;
+  const view = A.profileView(p);
+  for (const s of socketsOfPlayer(playerId)) s.emit('profile', view);
+}
+function settleRewards(room, g) {
+  room.rewards = null;
+  if (room.solo) return;
+  const ws = room.slots[g.winner], ls = room.slots[R.other(g.winner)];
+  if (!ws || !ls || !ws.playerId || !ls.playerId || ws.playerId === ls.playerId) {
+    room.rewards = { note: 'Монеты получают только игроки с аккаунтами' };
+    return;
+  }
+  const wp = A.peek(ws.playerId), lp = A.peek(ls.playerId);
+  if (!wp || !lp) return;
+  const r = A.matchResult(wp, lp, g.round);
+  room.rewards = r.note ? { note: r.note } : { [g.winner]: r.win, [R.other(g.winner)]: -r.lose };
+  if (!r.note) addLog(g, `💰 ${wp.name}: +${r.win} · ${lp.name}: −${r.lose}`, 'loot');
+  else addLog(g, `💰 ${r.note}`, 'sys');
+  emitProfile(wp.id); emitProfile(lp.id);
+}
+// Обновить имя/аккаунт/отряд игрока на его месте в лобби
+function refreshSeat(socket) {
+  const info = socketsInfo.get(socket.id);
+  const room = info && info.code ? rooms.get(info.code) : null;
+  if (!room || room.phase !== 'lobby' || room.solo) return;
+  const side = sideOfToken(room, info.token);
+  if (!side) return;
+  const sl = room.slots[side];
+  const p = info.playerId ? A.peek(info.playerId) : null;
+  sl.name = info.name;
+  sl.playerId = info.playerId || null;
+  sl.squad = p ? p.squad.slice() : R.DEFAULT_SQUAD.slice();
+  sl.ready = false;
+  emitLobby(room);
 }
 
 function joinRoom(socket, room) {
@@ -634,7 +784,9 @@ function joinRoom(socket, room) {
     }
   } else if (room.phase === 'lobby' && !room.solo) {
     const free = SIDES.find((s) => !room.slots[s]);
-    if (free) room.slots[free] = { token: info.token, name: info.name, ready: false, connected: true, socketId: socket.id, graceTimer: null };
+    const other = free && room.slots[R.other(free)];
+    const sameAccount = other && info.playerId && other.playerId === info.playerId;
+    if (free && !sameAccount) room.slots[free] = seatFor(info, socket, false);
   }
   emitLobby(room);
   if (room.game) {
@@ -662,6 +814,14 @@ function leaveRoom(socket) {
   if (!roomSockets(room).length) room.emptySince = Date.now();
   emitLobby(room);
   if (room.game) broadcastState(room, []);
+}
+
+function seatFor(info, socket, ready) {
+  const p = info.playerId ? A.peek(info.playerId) : null;
+  return {
+    token: info.token, name: info.name, ready, connected: true, socketId: socket.id, graceTimer: null,
+    playerId: info.playerId || null, squad: p ? p.squad.slice() : R.DEFAULT_SQUAD.slice(),
+  };
 }
 
 function publicRooms() {
@@ -693,15 +853,78 @@ io.on('connection', (socket) => {
     return info && info.code ? rooms.get(info.code) || null : null;
   };
 
-  socket.on('hello', (d) => {
+  socket.on('hello', async (d) => {
     const token = String((d && d.token) || '').slice(0, 64);
     if (!token) return;
-    socketsInfo.set(socket.id, { token, name: cleanName(d && d.name), code: null });
+    let player = null;
+    if (d && d.session) {
+      try { player = await A.resume(d.session); } catch (e) { console.error('[acc] resume', e.message); }
+      if (!player) socket.emit('sessionExpired');
+    }
+    if (!socket.connected) return;
+    socketsInfo.set(socket.id, { token, name: player ? player.name : cleanName(d && d.name), code: null, playerId: player ? player.id : null, fails: 0 });
+    if (player) socket.emit('profile', A.profileView(player));
     const code = normCode(d && d.code);
     if (!code) return socket.emit('menu');
     const room = rooms.get(code);
     if (room) joinRoom(socket, room);
     else socket.emit('roomGone', code);
+  });
+
+  // ---- аккаунт
+  const authHandler = (fn) => async (d, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    const info = socketsInfo.get(socket.id);
+    if (!info) return reply({ error: 'Нет связи с сервером' });
+    if (info.fails >= 5 && Date.now() - info.failAt < 60000) return reply({ error: 'Слишком много попыток, подождите минуту' });
+    let r;
+    try { r = await fn(String((d && d.name) || ''), d && d.pass); } catch (e) {
+      console.error('[acc]', e.message);
+      return reply({ error: 'Ошибка сервера, попробуйте позже' });
+    }
+    if (r.error) { info.fails = (info.fails || 0) + 1; info.failAt = Date.now(); return reply({ error: r.error }); }
+    info.fails = 0;
+    info.playerId = r.player.id;
+    info.name = r.player.name;
+    reply({ session: r.session, profile: A.profileView(r.player) });
+    refreshSeat(socket);
+  };
+  socket.on('register', authHandler(A.register));
+  socket.on('login', authHandler(A.login));
+  socket.on('logout', (session) => {
+    const info = socketsInfo.get(socket.id);
+    if (!info || !info.playerId) return;
+    const p = A.peek(info.playerId);
+    if (p) A.logout(p, session);
+    info.playerId = null;
+    refreshSeat(socket);
+  });
+
+  // ---- экономика: все операции возвращают свежий профиль
+  const econ = (fn) => (arg, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    const info = socketsInfo.get(socket.id);
+    const p = info && info.playerId ? A.peek(info.playerId) : null;
+    if (!p) return reply({ error: 'Войдите в аккаунт' });
+    const r = fn(p, arg);
+    if (r.error) return reply({ error: r.error });
+    reply(Object.assign({ profile: A.profileView(p) }, r));
+    emitProfile(p.id);
+    return r;
+  };
+  socket.on('collectMine', econ((p) => A.collectMine(p)));
+  socket.on('upgradeMine', econ((p) => A.upgradeMine(p)));
+  socket.on('claimDaily', econ((p) => A.claimDaily(p)));
+  socket.on('buyUnit', econ((p, type) => A.buyUnit(p, String(type))));
+  socket.on('setSquad', econ((p, squad) => {
+    const r = A.setSquad(p, squad);
+    if (!r.error) refreshSeat(socket);
+    return r;
+  }));
+  socket.on('profile', (cb) => {
+    const info = socketsInfo.get(socket.id);
+    const p = info && info.playerId ? A.peek(info.playerId) : null;
+    if (typeof cb === 'function') cb(p ? A.profileView(p) : null);
   });
 
   socket.on('listRooms', (cb) => { if (typeof cb === 'function') cb(publicRooms()); });
@@ -757,9 +980,7 @@ io.on('connection', (socket) => {
     const room = createRoom(true);
     info.code = room.code;
     socket.join('r:' + room.code);
-    for (const s of SIDES) {
-      room.slots[s] = { token: info.token, name: info.name, ready: true, connected: true, socketId: socket.id, graceTimer: null };
-    }
+    for (const s of SIDES) room.slots[s] = seatFor(info, socket, true);
     startGame(room, true);
   });
 
@@ -842,8 +1063,25 @@ if (SELF_URL && process.env.KEEP_AWAKE !== '0' && typeof fetch === 'function') {
   setInterval(() => { fetch(SELF_URL + '/health').catch(() => {}); }, 10 * 60 * 1000).unref();
 }
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n  TACTICAL LOOT CHESS — сервер запущен: http://localhost:${PORT}\n`);
+// Render при деплое шлёт SIGTERM: успеваем сохранить прогресс игроков
+let shuttingDown = false;
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[${sig}] сохраняю данные и выключаюсь…`);
+    try { await A.flushAll(); } catch (e) { console.error(e); }
+    process.exit(0);
+  });
+}
+
+A.init().then(() => {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n  TACTICAL LOOT CHESS — сервер запущен: http://localhost:${PORT}\n`);
+  });
+}).catch((e) => {
+  console.error('Не удалось подключиться к базе данных:', e.message);
+  process.exit(1);
 });
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') console.error(`Порт ${PORT} занят. Запустите с другим портом: PORT=3001 node server.js`);

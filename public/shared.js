@@ -11,16 +11,58 @@
   const N = 8;
   const TURN_SECONDS = 60;
 
+  // cost — стоимость в очках отряда; price — цена открытия в магазине (0 — доступен сразу)
   const UNIT_TYPES = {
-    commander: { name: 'Командир', hp: 10, move: 2, dmg: 2, range: 2, minRange: 1,
+    commander: { name: 'Командир', hp: 10, move: 2, dmg: 2, range: 2, minRange: 1, cost: 0, price: 0,
       desc: 'Лидер отряда. Если Командир погибает — команда проигрывает.' },
-    assault: { name: 'Штурмовик', hp: 6, move: 3, dmg: 2, range: 2, minRange: 1,
+    assault: { name: 'Штурмовик', hp: 6, move: 3, dmg: 2, range: 2, minRange: 1, cost: 2, price: 0,
       desc: 'Крепкий боец передовой линии.' },
-    sniper: { name: 'Снайпер', hp: 4, move: 2, dmg: 3, range: 4, minRange: 2,
+    sniper: { name: 'Снайпер', hp: 4, move: 2, dmg: 3, range: 4, minRange: 2, cost: 3, price: 0,
       desc: 'Не стреляет вплотную (1 клетка). Не может двигаться и стрелять в один ход.' },
-    scout: { name: 'Разведчик', hp: 5, move: 4, dmg: 1, range: 1, minRange: 1,
+    scout: { name: 'Разведчик', hp: 5, move: 4, dmg: 1, range: 1, minRange: 1, cost: 2, price: 0,
       desc: 'Самый быстрый юнит. Идеален для сбора ящиков с лутом.' },
+    medic: { name: 'Медик', hp: 5, move: 2, dmg: 1, range: 1, minRange: 1, cost: 2, price: 300, ability: 'heal',
+      desc: 'Способность (Действие): лечит союзника рядом на 2 HP.' },
+    drone: { name: 'Дрон', hp: 2, move: 4, dmg: 1, range: 2, minRange: 1, cost: 2, price: 300, fly: true,
+      desc: 'Летает над стенами (но не может на них остановиться). Хрупкий.' },
+    shieldbearer: { name: 'Щитоносец', hp: 7, move: 2, dmg: 1, range: 1, minRange: 1, cost: 2, price: 350, aura: true,
+      desc: 'Союзники вокруг него (8 клеток) получают на 1 урона меньше (но не меньше 1).' },
+    signaller: { name: 'Связист', hp: 4, move: 2, dmg: 1, range: 2, minRange: 1, cost: 2, price: 350, ability: 'boost',
+      desc: 'Способность (Действие): союзник в радиусе 2, ещё не ходивший, получает +2 к движению в этот ход.' },
+    grenadier: { name: 'Гренадёр', hp: 5, move: 2, dmg: 2, range: 3, minRange: 2, cost: 3, price: 500, lob: true,
+      desc: 'Граната летит навесом — стены не мешают. +1 урона врагам рядом с целью.' },
+    heavy: { name: 'Тяжёлый пехотинец', hp: 9, move: 1, dmg: 2, range: 1, minRange: 1, cost: 3, price: 500, knockback: true,
+      desc: 'Очень живучий, но медленный. Удар отбрасывает цель на клетку.' },
+    engineer: { name: 'Инженер', hp: 4, move: 2, dmg: 1, range: 2, minRange: 1, cost: 3, price: 600, ability: 'turret',
+      desc: 'Способность (Действие): ставит турель рядом (одна на инженера). Турель сама стреляет в конце вашего хода.' },
+    saboteur: { name: 'Диверсант', hp: 4, move: 3, dmg: 3, range: 1, minRange: 1, cost: 3, price: 600, stealth: true,
+      desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту.' },
+    turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 2, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
+      desc: 'Стоит на месте. В конце хода своей команды стреляет по ближайшему врагу в радиусе 2.' },
   };
+  const BASIC_UNITS = ['assault', 'sniper', 'scout'];
+  const SHOP_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].price > 0);
+  const SQUAD_BUDGET = 12;
+  const SQUAD_MAX = 5; // без Командира
+  const DEFAULT_SQUAD = ['sniper', 'assault', 'scout', 'assault', 'sniper'];
+  const HEAL_AMOUNT = 2;
+  const BOOST_AMOUNT = 2;
+  // Проверка отряда: только открытые юниты, бюджет очков, не больше 5 бойцов
+  function squadError(squad, unlocked) {
+    if (!Array.isArray(squad)) return 'Неверный отряд';
+    if (squad.length < 1) return 'Нужен хотя бы один боец кроме Командира';
+    if (squad.length > SQUAD_MAX) return `Не больше ${SQUAD_MAX} бойцов`;
+    let cost = 0;
+    for (const t of squad) {
+      const T = UNIT_TYPES[t];
+      if (!T || T.noShop || t === 'commander') return 'Неизвестный юнит';
+      if (!BASIC_UNITS.includes(t) && !(unlocked || []).includes(t)) return `${T.name} ещё не открыт`;
+      cost += T.cost;
+    }
+    if (cost > SQUAD_BUDGET) return `Превышен бюджет: ${cost}/${SQUAD_BUDGET}`;
+    return null;
+  }
+  const squadCost = (squad) => (squad || []).reduce((a, t) => a + ((UNIT_TYPES[t] && UNIT_TYPES[t].cost) || 0), 0);
 
   // ---- Редкость лута
   const RARITIES = [
@@ -147,7 +189,14 @@
 
   // ---- Правила хода: до 2 разных юнитов за ход, у каждого 1 Движение + 1 Действие
   function canUseUnit(g, u) {
+    if (UNIT_TYPES[u.type].static) return false;
     return g.activated.includes(u.id) || g.activated.length < 2;
+  }
+  // Диверсант скрыт, пока не атаковал недавно и рядом нет врагов
+  function isHidden(g, u) {
+    if (!u.alive || !UNIT_TYPES[u.type].stealth) return false;
+    if (u.revealUntil != null && g.turnNo <= u.revealUntil) return false;
+    return !g.units.some((o) => o.alive && o.side !== u.side && cheb(o, u) <= 1);
   }
   function canMove(g, u) {
     return !!u && u.alive && u.side === g.turn && !u.moved &&
@@ -160,12 +209,14 @@
     return canAct(g, u) && !(u.type === 'sniper' && u.moved);
   }
   function moveRange(u) {
-    return Math.max(1, UNIT_TYPES[u.type].move - (u.slowed ? 1 : 0));
+    if (UNIT_TYPES[u.type].static) return 0;
+    return Math.max(1, UNIT_TYPES[u.type].move - (u.slowed ? 1 : 0) + (u.boost || 0));
   }
 
   // BFS по 4 направлениям. Возвращает Map(key -> prevKey)
   function reachable(g, u) {
     const range = moveRange(u);
+    const fly = !!UNIT_TYPES[u.type].fly;
     const start = key(u.x, u.y);
     const dist = new Map([[start, 0]]);
     const prev = new Map([[start, -1]]);
@@ -178,13 +229,23 @@
         const nx = x + dx, ny = y + dy;
         if (!inBounds(nx, ny)) continue;
         const k = key(nx, ny);
-        if (dist.has(k) || isWall(g, nx, ny) || unitAt(g, nx, ny)) continue;
+        if (dist.has(k) || (!fly && isWall(g, nx, ny)) || unitAt(g, nx, ny)) continue;
         dist.set(k, d + 1);
         prev.set(k, key(x, y));
         q.push([nx, ny]);
       }
     }
     return prev;
+  }
+  // Клетки, где юнит может закончить движение (дрон не может стоять на стене)
+  function moveCells(g, u) {
+    const out = [];
+    for (const k of reachable(g, u).keys()) {
+      const x = k % N, y = Math.floor(k / N);
+      if ((x === u.x && y === u.y) || isWall(g, x, y)) continue;
+      out.push({ x, y });
+    }
+    return out;
   }
   function pathTo(prev, x, y) {
     let k = key(x, y);
@@ -210,7 +271,7 @@
     const d = cheb(u, t);
     if (d < min) return { ok: false, reason: 'Слишком близко' };
     if (d > max) return { ok: false, reason: 'Вне дальности' };
-    if (!hasLOS(g, u, t)) return { ok: false, reason: 'Нет линии огня' };
+    if (!(mode !== 'shotgun' && UNIT_TYPES[u.type].lob) && !hasLOS(g, u, t)) return { ok: false, reason: 'Нет линии огня' };
     return { ok: true, dmg };
   }
   function targets(g, u, mode) {
@@ -238,13 +299,38 @@
     }
     return out;
   }
+  // Клетки/цели способностей: heal — раненый союзник рядом, turret — свободная клетка рядом, boost — союзник в радиусе 2
+  function abilityTargets(g, u) {
+    const ab = UNIT_TYPES[u.type].ability;
+    if (!ab || !canAct(g, u)) return [];
+    if (ab === 'heal') {
+      return g.units.filter((o) => o.alive && o !== u && o.side === u.side && !UNIT_TYPES[o.type].static &&
+        cheb(o, u) <= 1 && o.hp < o.maxHp).map((o) => ({ x: o.x, y: o.y, id: o.id }));
+    }
+    if (ab === 'boost') {
+      return g.units.filter((o) => o.alive && o !== u && o.side === u.side && !UNIT_TYPES[o.type].static &&
+        cheb(o, u) <= 2 && !o.moved && !o.boost).map((o) => ({ x: o.x, y: o.y, id: o.id }));
+    }
+    if (ab === 'turret') {
+      if (g.units.some((o) => o.alive && o.type === 'turret' && o.owner === u.id)) return [];
+      const out = [];
+      for (const [dx, dy] of DIR8) {
+        const x = u.x + dx, y = u.y + dy;
+        if (!inBounds(x, y) || isWall(g, x, y) || unitAt(g, x, y) || crateAt(g, x, y)) continue;
+        out.push({ x, y });
+      }
+      return out;
+    }
+    return [];
+  }
   function hasUsefulMove(g, u) {
     if (!canMove(g, u)) return false;
     if (u.item && u.item.type === 'jetpack' && jetpackCells(g, u).length) return true;
-    return reachable(g, u).size > 1;
+    return moveCells(g, u).length > 0;
   }
   function hasUsefulAct(g, u) {
     if (!canAct(g, u)) return false;
+    if (abilityTargets(g, u).length) return true;
     if (u.item && u.item.type === 'landmine' && mineCells(g, u).length) return true;
     if (!canShoot(g, u)) return false;
     if (targets(g, u, 'normal').length) return true;
@@ -253,7 +339,7 @@
   }
   // Ход завершается автоматически, если ни один доступный юнит не может сделать ничего полезного
   function shouldAutoEnd(g) {
-    const own = g.units.filter((u) => u.alive && u.side === g.turn);
+    const own = g.units.filter((u) => u.alive && u.side === g.turn && !UNIT_TYPES[u.type].static);
     const cands = g.activated.length >= 2 ? own.filter((u) => g.activated.includes(u.id)) : own;
     return cands.every((u) => !hasUsefulMove(g, u) && !hasUsefulAct(g, u));
   }
@@ -263,7 +349,9 @@
     RARITIES, MAX_LUCK, ITEM_STATS, itemStat, rarityName, itemFullName, itemDesc,
     lootLevel, cratesPerDrop, maxCrates, dropInterval, rarityWeights, rarityChances, doubleDropChance,
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS,
-    canUseUnit, canMove, canAct, canShoot, moveRange, reachable, pathTo, attackInfo, targets,
+    canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
+    BASIC_UNITS, SHOP_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
+    squadError, squadCost, isHidden, abilityTargets,
     jetpackCells, mineCells, hasUsefulMove, hasUsefulAct, shouldAutoEnd,
   };
 });
