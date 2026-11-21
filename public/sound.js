@@ -252,6 +252,9 @@ const Sound = (() => {
           tone({ type: 'square', f: 1100, f2: 1300, dur: 0.12, vol: 0.06 });
           tone({ type: 'triangle', f: 660, dur: 0.25, vol: 0.08, delay: 0.1 });
           return;
+        case 'scan':
+          for (let i = 0; i < 2; i++) tone({ type: 'sine', f: 1500 - i * 300, f2: 2200 - i * 300, dur: 0.12, vol: 0.07, delay: i * 0.09 });
+          return;
         case 'wave':
           for (let i = 0; i < 3; i++) tone({ type: 'sine', f: 600 + i * 220, f2: 900 + i * 220, dur: 0.1, vol: 0.08, delay: i * 0.08 });
           return;

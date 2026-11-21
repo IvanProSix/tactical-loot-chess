@@ -37,6 +37,8 @@
       desc: 'Способность (Действие): ставит турель рядом (одна на инженера). Турель сама стреляет в конце вашего хода.' },
     saboteur: { name: 'Диверсант', hp: 4, move: 3, dmg: 3, range: 1, minRange: 1, cost: 3, price: 600, stealth: true, backstab: true,
       desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту. Удар в спину (с любой из 3 клеток позади цели) убивает мгновенно, а Командиру наносит двойной урон (не больше 6). Спасает только Энергощит.' },
+    tracker: { name: 'Следопыт', hp: 5, move: 3, dmg: 2, range: 2, minRange: 1, cost: 2, price: 400, detect: 2,
+      desc: 'Чует скрытых врагов: Диверсанты в радиусе 2 клеток от него становятся видны всем. Удар в спину на нём не срабатывает.' },
     // Особый юнит: в магазине его нет, выдаёт только администратор
     elephant: { name: 'Зелёный слоник', hp: 8, move: 3, dmg: 2, range: 2, minRange: 1, cost: 3, price: 0, special: true, ability: 'trumpet', knockback: true, trample: true,
       desc: 'Особый юнит — выдаёт только администратор. ТАРАН: ходит сквозь стены, ломая их, и сквозь врагов — враг на пути получает урон и отлетает (если некуда — +1 урона, и слоник останавливается). Атака отбрасывает цель. Способность: трубный рёв — враги вокруг получают 1 урона и отлетают.' },
@@ -47,7 +49,7 @@
   const SHOT_KIND = {
     commander: 'bolt', assault: 'burst', sniper: 'sniper', scout: 'dart', medic: 'syringe', grenadier: 'grenade',
     heavy: 'punch', engineer: 'laser', saboteur: 'knife', drone: 'laser', shieldbearer: 'shield', signaller: 'wave',
-    elephant: 'bone', turret: 'laser',
+    elephant: 'bone', turret: 'laser', tracker: 'scan',
   };
   const BASIC_UNITS = ['assault', 'sniper', 'scout'];
   const SHOP_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].price > 0);
@@ -221,7 +223,8 @@
   function isHidden(g, u) {
     if (!u.alive || !UNIT_TYPES[u.type].stealth) return false;
     if (u.revealUntil != null && g.turnNo <= u.revealUntil) return false;
-    return !g.units.some((o) => o.alive && o.side !== u.side && cheb(o, u) <= 1);
+    // раскрывает любой враг вплотную или Следопыт в радиусе своего чутья
+    return !g.units.some((o) => o.alive && o.side !== u.side && cheb(o, u) <= Math.max(1, UNIT_TYPES[o.type].detect || 0));
   }
   function canMove(g, u) {
     return !!u && u.alive && u.side === g.turn && !u.moved &&
@@ -346,7 +349,7 @@
     if (d < min) return { ok: false, reason: 'Слишком близко' };
     if (d > max) return { ok: false, reason: 'Вне дальности' };
     if (!(mode !== 'shotgun' && UNIT_TYPES[u.type].lob) && !hasLOS(g, u, t)) return { ok: false, reason: 'Нет линии огня' };
-    if (mode !== 'shotgun' && UNIT_TYPES[u.type].backstab && isBehind(u, t)) {
+    if (mode !== 'shotgun' && UNIT_TYPES[u.type].backstab && !UNIT_TYPES[t.type].detect && isBehind(u, t)) {
       // Командира удар в спину не убивает мгновенно: двойной урон, но не больше 6 (у Командира 10 HP)
       return { ok: true, dmg: t.type === 'commander' ? Math.min(dmg * 2, 6) : Math.max(dmg, t.hp), backstab: true };
     }

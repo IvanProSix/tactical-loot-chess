@@ -789,6 +789,13 @@
         await wait(120);
         return;
       }
+      case 'detected': {
+        addFloat('ОБНАРУЖЕН!', e.x, e.y, '#22d3ee', true);
+        ring(cellCenter(e.x, e.y), '#22d3ee');
+        Sound.mine();
+        await wait(300);
+        return;
+      }
       case 'aura': {
         if (u) addFloat('ЩИТ −1', u.x, u.y, '#93c5fd');
         return;
@@ -1561,6 +1568,15 @@
   function drawHighlights(now) {
     const side = actingSide();
     const su = selUnit();
+    // зона чутья Следопыта (видна при выборе — и своего, и чужого)
+    if (su && R.UNIT_TYPES[su.type].detect) {
+      const r = R.UNIT_TYPES[su.type].detect;
+      for (let y = su.y - r; y <= su.y + r; y++) for (let x = su.x - r; x <= su.x + r; x++) {
+        if (!R.inBounds(x, y) || (x === su.x && y === su.y)) continue;
+        fillCell(x, y, 'rgba(34,211,238,0.07)');
+        frameCell(x, y, 'rgba(34,211,238,0.22)', S, 3 * S);
+      }
+    }
     if (!su || !side || su.side !== side || animating) return;
     const pulse = 0.5 + 0.5 * Math.sin(now / 180);
     if (mode === 'normal') {
@@ -1841,7 +1857,7 @@
         projectiles.splice(i, 1);
         const HIT = {
           shotgun: ['#fb923c', '#facc15'], knife: ['#e5e7eb', '#ef4444'], bone: ['#f8fafc', '#d1d5db'], syringe: ['#22d3ee', '#fff'],
-          dart: ['#22d3ee', '#fff'], punch: ['#fb923c', '#9ca3af', '#fff'], shield: ['#22d3ee', '#93c5fd'], wave: ['#4ade80', '#bbf7d0'],
+          dart: ['#22d3ee', '#fff'], scan: ['#22d3ee', '#a5f3fc', '#fff'], punch: ['#fb923c', '#9ca3af', '#fff'], shield: ['#22d3ee', '#93c5fd'], wave: ['#4ade80', '#bbf7d0'],
           bolt: ['#facc15', '#fde68a', '#fff'],
         };
         burst(b, p.kind === 'punch' ? 14 : 8, HIT[p.kind] || ['#fff', TEAM_COL[p.side] || '#fff'], 1.6);
@@ -1880,15 +1896,15 @@
           ctx.fillStyle = TEAM_COL[p.side] || '#fff';
           ctx.fillRect(snap(bx - S - (b.x - a.x) / Math.hypot(b.x - a.x, b.y - a.y || 1) * 2 * S), snap(by - S), S, S);
         }
-      } else if (p.kind === 'wave') {
-        // радиоволны: три дуги, расходящиеся к цели
+      } else if (p.kind === 'wave' || p.kind === 'scan') {
+        // радиоволны (Связист) и сканирующий импульс (Следопыт): дуги, расходящиеся к цели
         const ang = Math.atan2(b.y - a.y, b.x - a.x);
         for (let k = 0; k < 3; k++) {
           const tk = t - k * 0.18;
           if (tk < 0 || tk > 1) continue;
           const cx = a.x + (b.x - a.x) * tk, cy = a.y + (b.y - a.y) * tk;
           const r = C * (0.18 + 0.12 * k);
-          ctx.fillStyle = k === 0 ? '#bbf7d0' : '#4ade80';
+          ctx.fillStyle = p.kind === 'scan' ? (k === 0 ? '#a5f3fc' : '#22d3ee') : (k === 0 ? '#bbf7d0' : '#4ade80');
           for (let j = -3; j <= 3; j++) {
             const aa = ang + j * 0.22;
             ctx.fillRect(snap(cx + Math.cos(aa) * r - S / 2), snap(cy + Math.sin(aa) * r - S / 2), S, S);

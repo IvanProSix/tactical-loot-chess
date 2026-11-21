@@ -237,6 +237,24 @@ const Sprites = (() => {
       '....kGGk.kGGk...',
       '....kkkk.kkkk...',
     ],
+    tracker: [
+      '................',
+      '.....kkkkkk..k..',
+      '....kTTTTTTk.k..',
+      '...kTLLTTTTTkk..',
+      '...kTTTTTTTTk...',
+      '...kkkkkkkkkk...',
+      '....keekkeek....',
+      '....kssssssk....',
+      '.....kssssk.....',
+      '...kkTTTTTTkk...',
+      '..kTTtTTTTtTTk..',
+      '..kTkkkkkkkTkkk.',
+      '..kskcecekskGk..',
+      '...kkkkkkkkkk...',
+      '....kGGk.kGGk...',
+      '....kkkk.kkkk...',
+    ],
     turret: [
       '................',
       '................',
@@ -690,7 +708,7 @@ const Sprites = (() => {
   };
 
   const UNIT_TYPES = ['commander', 'assault', 'sniper', 'scout', 'medic', 'grenadier', 'heavy', 'engineer',
-    'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret', 'elephant'];
+    'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret', 'elephant', 'tracker'];
   const cache = new Map();
 
   // Нормализация: каждая строка ровно 16 символов (защита от опечаток в матрицах)

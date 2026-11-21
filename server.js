@@ -787,6 +787,7 @@ function performAction(g, side, a) {
   const logStart = g.log.length;
   const actor = typeof a.unitId === 'string' ? g.units.find((x) => x.id === a.unitId && x.side === side) : null;
   const hiddenBefore = !!(actor && R.isHidden(g, actor));
+  const stealthHidden = g.units.filter((x) => R.UNIT_TYPES[x.type].stealth && R.isHidden(g, x));
   let err = null;
   try {
     switch (a.type) {
@@ -805,6 +806,16 @@ function performAction(g, side, a) {
   } catch (e) {
     console.error('Ошибка обработки действия:', e);
     err = 'Внутренняя ошибка сервера';
+  }
+  // Диверсант, которого раскрыли (подошли вплотную или учуял Следопыт), — «ОБНАРУЖЕН!»
+  if (!err) {
+    for (const x of stealthHidden) {
+      const selfRevealed = x === actor && x.revealUntil != null && g.turnNo <= x.revealUntil; // раскрыл себя атакой
+      if (x.alive && !R.isHidden(g, x) && !selfRevealed) {
+        ev(g, 'detected', { unitId: x.id, x: x.x, y: x.y });
+        addLog(g, `👁 ${label(x)} обнаружен!`, 'sys');
+      }
+    }
   }
   // Скрытый Диверсант: противник не видит его перемещений и находок
   if (!err && actor && actor.alive && (hiddenBefore || R.isHidden(g, actor))) {
