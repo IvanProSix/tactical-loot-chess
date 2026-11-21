@@ -273,7 +273,7 @@ function makeUnit(g, id, type, side, x, y) {
   const u = {
     id, type, side, x, y, hp: T.hp, maxHp: T.hp, alive: true, item: null,
     moved: false, acted: false, attacked: false, slowed: false, slowNext: false, boost: 0, revealUntil: null,
-    buffs: { dmg: 0, range: 0, move: 0, steady: 0 },
+    buffs: { dmg: 0, range: 0, move: 0, steady: 0 }, frozen: 0, freezeCd: 0,
   };
   g.units.push(u);
   return u;
@@ -625,6 +625,17 @@ function actAbility(g, side, a) {
     t.boost = R.BOOST_AMOUNT;
     ev(g, 'boost', { unitId: t.id, amount: R.BOOST_AMOUNT });
     addLog(g, `📡 ${label(u)} даёт ${label(t)} +${R.BOOST_AMOUNT} к движению`, 'sys');
+  } else if (ab === 'freeze') {
+    const t = R.unitAt(g, x, y);
+    ev(g, 'shot', { unitId: u.id, from: { x: u.x, y: u.y }, to: { x: t.x, y: t.y }, kind: 'frost', side: u.side });
+    addLog(g, `❄ ${label(u)}: ледяной залп по ${label(t)}!`, 'shield');
+    damage(g, t, 1);
+    u.freezeCd = R.FREEZE.cooldown;
+    if (t.alive) {
+      t.frozen = R.FREEZE.turns;
+      ev(g, 'freeze', { unitId: t.id, turns: t.frozen });
+      addLog(g, `${label(t)} заморожен: не может двигаться ${R.FREEZE.turns} хода`, 'shield');
+    }
   } else if (ab === 'trumpet') {
     ev(g, 'trumpet', { unitId: u.id });
     addLog(g, `🐘 ${label(u)}: ТРУБНЫЙ РЁВ!`, 'atk');
@@ -734,6 +745,9 @@ function endTurn(g, reason) {
   for (const u of g.units) {
     if (u.side !== side) continue;
     u.moved = false; u.acted = false; u.attacked = false; u.slowed = false; u.boost = 0;
+    // заморозка и перезарядка считаются в конце хода своей команды
+    if (u.frozen > 0) { u.frozen--; if (!u.frozen && u.alive) ev(g, 'thaw', { unitId: u.id }); }
+    if (u.freezeCd > 0) u.freezeCd--;
   }
   g.activated = [];
   if (side === 'red') {

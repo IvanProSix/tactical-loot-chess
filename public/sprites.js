@@ -255,6 +255,24 @@ const Sprites = (() => {
       '....kGGk.kGGk...',
       '....kkkk.kkkk...',
     ],
+    frostwitch: [
+      '......kk....kck.',
+      '.....kwwk..kcwck',
+      '....kvwwvk..kcck',
+      '...kvvwwvvk..kGk',
+      '..kvTkkkkkkTkkGk',
+      '..kVkssssssk.kGk',
+      '..kVkscsscsk.kGk',
+      '..kvVkssssk..kGk',
+      '..kvvvkkkkvk.kGk',
+      '.kvwvvTTTTvvkksk',
+      '.kvwvvvvvvvvkkGk',
+      'kvwvvvvvvvvvvkGk',
+      'kvwvVvvvvvVvvkGk',
+      'kvvVvvvvvvvVvkGk',
+      'kTTTTTTTTTTTTkGk',
+      'kkkkkkkkkkkkkkkk',
+    ],
     turret: [
       '................',
       '................',
@@ -525,6 +543,24 @@ const Sprites = (() => {
       '................',
       '................',
     ],
+    p_ice: [
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+      '....kkkkkk......',
+      '..kkwwvvvvkkk...',
+      'kkwwvvvvvVVVcck.',
+      '..kkvvVVVVkkk...',
+      '....kkkkkk......',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
     i_shotgun: [
       '................',
       '................',
@@ -708,7 +744,7 @@ const Sprites = (() => {
   };
 
   const UNIT_TYPES = ['commander', 'assault', 'sniper', 'scout', 'medic', 'grenadier', 'heavy', 'engineer',
-    'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret', 'elephant', 'tracker'];
+    'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret', 'elephant', 'tracker', 'frostwitch'];
   const cache = new Map();
 
   // Нормализация: каждая строка ровно 16 символов (защита от опечаток в матрицах)

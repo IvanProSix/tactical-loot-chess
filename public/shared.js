@@ -42,6 +42,8 @@
     // Особый юнит: в магазине его нет, выдаёт только администратор
     elephant: { name: 'Зелёный слоник', hp: 8, move: 3, dmg: 2, range: 2, minRange: 1, cost: 3, price: 0, special: true, ability: 'trumpet', knockback: true, trample: true,
       desc: 'Особый юнит — выдаёт только администратор. ТАРАН: ходит сквозь стены, ломая их, и сквозь врагов — враг на пути получает урон и отлетает (если некуда — +1 урона, и слоник останавливается). Атака отбрасывает цель. Способность: трубный рёв — враги вокруг получают 1 урона и отлетают.' },
+    frostwitch: { name: 'Ледяная колдунья', hp: 6, move: 2, dmg: 1, range: 3, minRange: 1, cost: 3, price: 0, special: true, ability: 'freeze',
+      desc: 'Особый юнит — выдаёт только администратор. Способность (Действие): ледяной залп — враг в радиусе 4 на линии огня получает 1 урона и не может двигаться 2 своих хода (стрелять может). Перезарядка — 3 хода.' },
     turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 2, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по ближайшему врагу в радиусе 2.' },
   };
@@ -49,8 +51,9 @@
   const SHOT_KIND = {
     commander: 'bolt', assault: 'burst', sniper: 'sniper', scout: 'dart', medic: 'syringe', grenadier: 'grenade',
     heavy: 'punch', engineer: 'laser', saboteur: 'knife', drone: 'laser', shieldbearer: 'shield', signaller: 'wave',
-    elephant: 'bone', turret: 'laser', tracker: 'scan',
+    elephant: 'bone', turret: 'laser', tracker: 'scan', frostwitch: 'ice',
   };
+  const FREEZE = { range: 4, turns: 2, cooldown: 3 };
   const BASIC_UNITS = ['assault', 'sniper', 'scout'];
   const SHOP_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].price > 0);
   const SPECIAL_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].special);
@@ -227,7 +230,7 @@
     return !g.units.some((o) => o.alive && o.side !== u.side && cheb(o, u) <= Math.max(1, UNIT_TYPES[o.type].detect || 0));
   }
   function canMove(g, u) {
-    return !!u && u.alive && u.side === g.turn && !u.moved &&
+    return !!u && u.alive && u.side === g.turn && !u.moved && !(u.frozen > 0) &&
       !(sniperLocked(u) && u.attacked) && canUseUnit(g, u);
   }
   function canAct(g, u) {
@@ -390,7 +393,12 @@
     }
     if (ab === 'boost') {
       return g.units.filter((o) => o.alive && o !== u && o.side === u.side && !UNIT_TYPES[o.type].static &&
-        cheb(o, u) <= 2 && !o.moved && !o.boost).map((o) => ({ x: o.x, y: o.y, id: o.id }));
+        cheb(o, u) <= 2 && !o.moved && !o.boost && !(o.frozen > 0)).map((o) => ({ x: o.x, y: o.y, id: o.id }));
+    }
+    if (ab === 'freeze') {
+      if (u.freezeCd > 0) return [];
+      return g.units.filter((o) => o.alive && o.side !== u.side && !UNIT_TYPES[o.type].static && !(o.frozen > 0) &&
+        !isHidden(g, o) && cheb(o, u) <= FREEZE.range && hasLOS(g, u, o)).map((o) => ({ x: o.x, y: o.y, id: o.id }));
     }
     if (ab === 'trumpet') {
       // применяется на себя, если рядом есть хотя бы один враг
@@ -436,7 +444,7 @@
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS,
     BUFF_CAP, rammable, unitDmg, unitRange, isBehind, sniperLocked,
     canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
-    SHOT_KIND, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
+    SHOT_KIND, FREEZE, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
     squadError, squadCost, isHidden, abilityTargets,
     jetpackCells, mineCells, hasUsefulMove, hasUsefulAct, shouldAutoEnd,
   };
