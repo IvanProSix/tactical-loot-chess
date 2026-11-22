@@ -234,9 +234,10 @@
     const st = profile.stats;
     bar.innerHTML = `<div class="acc-row"><span class="acc-name">👤 ${esc(profile.name)}</span><span id="coinBox" class="coins">${coinFmt(profile.coins)}</span>
         <span class="acc-stats">🏆 ${st.wins} · ✖ ${st.losses}${st.streak > 1 ? ` · 🔥 ${st.streak}` : ''}</span></div>
-      <div class="acc-btns"><button id="btnShop" class="btn small primary">🛒 Магазин</button><button id="btnSquad" class="btn small primary">⚔ Отряд</button>${profile.admin ? '<button id="btnAdmin" class="btn small danger">🛠 Админ</button>' : ''}<button id="btnLogout" class="btn small">Выйти</button></div>`;
+      <div class="acc-btns"><button id="btnShop" class="btn small primary">🛒 Магазин</button><button id="btnSquad" class="btn small primary">⚔ Отряд</button>${profile.admin ? '<button id="btnAdmin" class="btn small danger">🛠 Админ</button>' : ''}<button id="btnChangePass" class="btn small">🔑 Пароль</button><button id="btnLogout" class="btn small">Выйти</button></div>`;
     $('btnShop').onclick = () => openModal('shop');
     if ($('btnAdmin')) $('btnAdmin').onclick = () => openModal('admin');
+    $('btnChangePass').onclick = openChangePassword;
     $('btnSquad').onclick = () => openModal('squad');
     $('btnLogout').onclick = () => {
       if (!confirm('Выйти из аккаунта на этом устройстве?')) return;
@@ -341,6 +342,32 @@
     };
   }
 
+  function openChangePassword() {
+    modalKind = 'password';
+    $('modal').classList.remove('hidden');
+    $('modalBody').innerHTML = `<h2 class="modal-title">🔑 СМЕНА ПАРОЛЯ</h2>
+      <form id="passForm" class="auth-form">
+        <label class="field">ТЕКУЩИЙ ПАРОЛЬ<input id="passOld" type="password" maxlength="64" autocomplete="current-password"></label>
+        <label class="field">НОВЫЙ ПАРОЛЬ<input id="passNew" type="password" maxlength="64" autocomplete="new-password"></label>
+        <label class="field">ПОВТОРИТЕ НОВЫЙ<input id="passNew2" type="password" maxlength="64" autocomplete="new-password"></label>
+        <div id="passErr" class="auth-err"></div>
+        <button class="btn primary big" type="submit">Сменить пароль</button>
+        <div class="econ-dim">Если вошли с временным паролем от админа — введите его как текущий. На других устройствах аккаунт выйдет.</div>
+      </form>`;
+    setTimeout(() => $('passOld').focus(), 50);
+    $('passForm').onsubmit = (e) => {
+      e.preventDefault();
+      const o = $('passOld').value, n = $('passNew').value;
+      if (n !== $('passNew2').value) { $('passErr').textContent = 'Новые пароли не совпадают'; return; }
+      if (n.length < 6) { $('passErr').textContent = 'Новый пароль: от 6 символов'; return; }
+      $('passErr').textContent = '…';
+      socket.emit('changePassword', { old: o, new: n, session }, (r) => {
+        if (!r || r.error) { $('passErr').textContent = (r && r.error) || 'Ошибка'; Sound.error(); return; }
+        closeModal(); Sound.ready(); toast('Пароль изменён');
+      });
+    };
+  }
+
   function unitStatsLine(t) {
     const T = R.UNIT_TYPES[t];
     return `❤ ${T.hp} · 👣 ${T.move} · ⚔ ${T.dmg} · 🎯 ${T.minRange > 1 ? T.minRange + '–' : ''}${T.range}`;
@@ -381,6 +408,9 @@
       </div>
       <h3>// ОСОБЫЕ ЮНИТЫ</h3>
       ${R.SPECIAL_UNITS.map((u) => `<div class="btn-row admin-row"><button class="btn small primary" data-grant="${u}">${SPECIAL_ICON[u] || '★'} Выдать: ${R.UNIT_TYPES[u].name}</button><button class="btn small danger" data-revoke="${u}">Забрать</button></div>`).join('')}
+      <h3>// ДОСТУП</h3>
+      <div class="btn-row admin-row"><button class="btn small danger" id="admReset">🔑 Сбросить пароль игроку</button></div>
+      <div id="admTemp" class="admin-temp hidden"></div>
       <h3>// УРОВЕНЬ РУДНИКА</h3>
       <div class="btn-row admin-row">${[1, 2, 3, 4, 5].map((l) => `<button class="btn small" data-mine="${l}">${l}</button>`).join('')}</div>
       <div class="econ-dim" style="margin-top:12px">Отрицательная сумма забирает монеты. Все действия записываются в лог сервера.</div>`;
@@ -399,6 +429,19 @@
     $('admGive').onclick = () => run({ op: 'coins', amount: Number($('admAmount').value) });
     for (const b of $('modalBody').querySelectorAll('[data-coins]')) b.onclick = () => run({ op: 'coins', amount: Number(b.dataset.coins) });
     for (const b of $('modalBody').querySelectorAll('[data-op]')) b.onclick = () => run({ op: b.dataset.op });
+    $('admReset').onclick = () => {
+      const who = $('admName').value.trim() || profile.name;
+      if (!confirm(`Сбросить пароль игроку «${who}»? Он выйдет из аккаунта на всех устройствах и сможет войти только с временным паролем.`)) return;
+      socket.emit('admin', { op: 'resetPassword', name: who }, (r) => {
+        if (!r || r.error) { toast((r && r.error) || 'Ошибка', 'err'); Sound.error(); return; }
+        const box = $('admTemp');
+        box.classList.remove('hidden');
+        box.innerHTML = `Временный пароль для <b>${esc(r.target.name)}</b>: <code id="admTempPass">${esc(r.tempPassword)}</code>
+          <button class="btn small" id="admCopyTemp">Копировать</button><div class="econ-dim">Передайте его игроку. После входа пусть сменит пароль кнопкой «🔑 Пароль». Пароль показывается один раз.</div>`;
+        $('admCopyTemp').onclick = () => { navigator.clipboard.writeText(r.tempPassword).then(() => toast('Скопировано'), () => {}); };
+        Sound.ready();
+      });
+    };
     for (const b of $('modalBody').querySelectorAll('[data-grant]')) b.onclick = () => run({ op: 'grantSpecial', unit: b.dataset.grant });
     for (const b of $('modalBody').querySelectorAll('[data-revoke]')) b.onclick = () => {
       if (confirm(`Забрать ${R.UNIT_TYPES[b.dataset.revoke].name} у игрока ${$('admName').value.trim() || profile.name}?`)) run({ op: 'revokeSpecial', unit: b.dataset.revoke });

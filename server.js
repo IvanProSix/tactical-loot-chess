@@ -1343,6 +1343,19 @@ io.on('connection', (socket) => {
   };
   socket.on('register', authHandler('register', A.register));
   socket.on('login', authHandler('login', A.login));
+  socket.on('changePassword', async (d, cb) => {
+    const reply = typeof cb === 'function' ? cb : () => {};
+    const info = socketsInfo.get(socket.id);
+    const p = info && info.playerId ? A.peek(info.playerId) : null;
+    if (!p) return reply({ error: 'Войдите в аккаунт' });
+    if (overLimit('fail:' + ip, 10, 15 * 60e3) || overLimit('fail:acc:' + p.nameLc, 10, 15 * 60e3)) return reply({ error: 'Слишком много неудачных попыток, подождите 15 минут' });
+    let r;
+    try { r = await A.changePassword(p, d && d.old, d && d.new, d && d.session); } catch (e) { console.error('[acc]', e.message); return reply({ error: 'Ошибка сервера' }); }
+    if (r.wrong) { hit('fail:' + ip, 1e9, 15 * 60e3); hit('fail:acc:' + p.nameLc, 1e9, 15 * 60e3); }
+    if (r.ok) console.log(`[acc] ${p.name}: пароль изменён`);
+    reply(r.error ? { error: r.error } : { ok: true });
+  });
+
   socket.on('logout', (session) => {
     const info = socketsInfo.get(socket.id);
     if (!info || !info.playerId) return;

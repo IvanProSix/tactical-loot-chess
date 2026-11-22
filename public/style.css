@@ -559,3 +559,6 @@ h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: 2px; color: var(--cyan); 
   .tutor-avatar { width: 48px; height: 48px; }
   .tutor-text { font-size: 12.5px; }
 }
+
+.admin-temp { margin: 8px 0 4px; padding: 10px; border: 2px dashed var(--yellow); background: rgba(74,52,16,.3); font-size: 13px; line-height: 1.6; }
+.admin-temp code { font-size: 18px; color: var(--yellow); letter-spacing: 2px; background: #060a10; padding: 2px 8px; margin: 0 6px; user-select: all; }

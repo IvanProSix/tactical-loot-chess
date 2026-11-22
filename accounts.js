@@ -243,6 +243,25 @@ async function resume(session) {
   if (!p || !p.sessions.includes(sha(secret))) return null;
   return p;
 }
+// Смена пароля игроком: нужен старый пароль; остальные устройства выходят из аккаунта
+async function changePassword(p, oldPass, newPass, keepSession) {
+  if (typeof oldPass !== 'string' || typeof newPass !== 'string') return { error: 'Неверные данные' };
+  const h = await hashPass(oldPass, p.pass.salt);
+  if (!crypto.timingSafeEqual(Buffer.from(h, 'hex'), Buffer.from(p.pass.hash, 'hex'))) return { error: 'Старый пароль неверный', wrong: true };
+  if (newPass.length < 6 || newPass.length > 64) return { error: 'Новый пароль: от 6 до 64 символов' };
+  const salt = crypto.randomBytes(16).toString('hex');
+  p.pass = { salt, hash: await hashPass(newPass, salt) };
+  const keep = String(keepSession || '').split('.')[1];
+  p.sessions = keep ? p.sessions.filter((x) => x === sha(keep)) : [];
+  save(p);
+  return { ok: true };
+}
+// Временный пароль из понятных символов (без 0/O, 1/l/I)
+function tempPassword() {
+  const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const b = crypto.randomBytes(10);
+  return Array.from(b, (x) => abc[x % abc.length]).join('');
+}
 function logout(p, session) {
   const secret = String(session || '').split('.')[1];
   if (!secret) return;
@@ -385,6 +404,16 @@ async function adminAction(admin, d) {
       }
       break;
     }
+    case 'resetPassword': {
+      // временный пароль видит только админ; все сессии игрока завершаются
+      const temp = tempPassword();
+      const salt = crypto.randomBytes(16).toString('hex');
+      t.pass = { salt, hash: await hashPass(temp, salt) };
+      t.sessions = [];
+      save(t);
+      console.log(`[admin] ${admin.name} → ${t.name}: пароль сброшен`);
+      return { target: Object.assign({ id: t.id }, profileView(t)), msg: 'пароль сброшен', tempPassword: temp };
+    }
     case 'mineLevel': {
       const lvl = Math.trunc(Number(d.level));
       if (!(lvl >= 1 && lvl <= ECON.MINE_RATE.length)) return { error: 'Уровень рудника: 1–' + ECON.MINE_RATE.length };
@@ -419,5 +448,5 @@ module.exports = {
     for (const n of ADMINS) if (!(await loadByName(n))) console.warn(`[admin] ⚠ ник «${n}» из ADMIN_NAMES не зарегистрирован`);
     if (ADMINS.size) console.log(`[admin] админов в ADMIN_NAMES: ${ADMINS.size}`);
   }, flushAll, peek: (id) => cache.get(id) || null, register, login, resume, logout, loadById,
-  profileView, adminAction, collectMine, upgradeMine, claimDaily, buyUnit, setSquad, matchResult,
+  profileView, adminAction, changePassword, collectMine, upgradeMine, claimDaily, buyUnit, setSquad, matchResult,
 };
