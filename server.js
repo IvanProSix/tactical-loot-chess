@@ -604,6 +604,12 @@ function actAttack(g, side, a) {
   } else {
     damage(g, t, info.dmg);
     if (T.knockback) pushAway(g, u, t);
+    // Ледяной маг: обычная атака замораживает (не сокращает уже наложенную заморозку)
+    if (T.freezeOnHit && t.alive && !R.UNIT_TYPES[t.type].static && (t.frozen || 0) < T.freezeOnHit) {
+      t.frozen = T.freezeOnHit;
+      ev(g, 'freeze', { unitId: t.id, turns: t.frozen });
+      addLog(g, `${label(t)} заморожен на ${t.frozen} ход`, 'shield');
+    }
   }
   return null;
 }
@@ -638,7 +644,7 @@ function actAbility(g, side, a) {
     damage(g, t, 1);
     u.freezeCd = R.FREEZE.cooldown;
     if (t.alive) {
-      t.frozen = R.FREEZE.turns;
+      t.frozen = Math.max(t.frozen || 0, R.FREEZE.turns);
       ev(g, 'freeze', { unitId: t.id, turns: t.frozen });
       addLog(g, `${label(t)} заморожен: не может двигаться ${R.FREEZE.turns} хода`, 'shield');
     }

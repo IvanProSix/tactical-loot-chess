@@ -42,8 +42,8 @@
     // Особый юнит: в магазине его нет, выдаёт только администратор
     elephant: { name: 'Зелёный слоник', hp: 8, move: 3, dmg: 2, range: 2, minRange: 1, cost: 3, price: 0, special: true, ability: 'trumpet', knockback: true, trample: true,
       desc: 'Особый юнит — выдаёт только администратор. ТАРАН: ходит сквозь стены, ломая их, и сквозь врагов — враг на пути получает урон и отлетает (если некуда — +1 урона, и слоник останавливается). Атака отбрасывает цель. Способность: трубный рёв — враги вокруг получают 1 урона и отлетают.' },
-    icemage: { name: 'Ледяной маг', hp: 6, move: 2, dmg: 1, range: 3, minRange: 1, cost: 3, price: 0, special: true, ability: 'freeze',
-      desc: 'Особый юнит — выдаёт только администратор. Способность (Действие): ледяной залп — враг в радиусе 4 на линии огня получает 1 урона и не может двигаться 2 своих хода (стрелять может). Перезарядка — 3 хода.' },
+    icemage: { name: 'Ледяной маг', hp: 6, move: 2, dmg: 1, range: 3, minRange: 1, cost: 3, price: 0, special: true, ability: 'freeze', freezeOnHit: 1,
+      desc: 'Особый юнит — выдаёт только администратор. Способность (Действие): ледяной залп — враг в радиусе 4 на линии огня получает 1 урона и не может двигаться 3 своих хода (стрелять может). Перезарядка — 3 хода. Обычная атака замораживает на 1 ход.' },
     turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 2, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по ближайшему врагу в радиусе 2.' },
   };
@@ -53,7 +53,7 @@
     heavy: 'punch', engineer: 'laser', saboteur: 'knife', drone: 'laser', shieldbearer: 'shield', signaller: 'wave',
     elephant: 'bone', turret: 'laser', tracker: 'scan', icemage: 'ice',
   };
-  const FREEZE = { range: 4, turns: 2, cooldown: 3 };
+  const FREEZE = { range: 4, turns: 3, cooldown: 3 };
   const BASIC_UNITS = ['assault', 'sniper', 'scout'];
   const SHOP_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].price > 0);
   const SPECIAL_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].special);
@@ -397,7 +397,7 @@
     }
     if (ab === 'freeze') {
       if (u.freezeCd > 0) return [];
-      return g.units.filter((o) => o.alive && o.side !== u.side && !UNIT_TYPES[o.type].static && !(o.frozen > 0) &&
+      return g.units.filter((o) => o.alive && o.side !== u.side && !UNIT_TYPES[o.type].static && !(o.frozen >= FREEZE.turns) &&
         !isHidden(g, o) && cheb(o, u) <= FREEZE.range && hasLOS(g, u, o)).map((o) => ({ x: o.x, y: o.y, id: o.id }));
     }
     if (ab === 'trumpet') {
