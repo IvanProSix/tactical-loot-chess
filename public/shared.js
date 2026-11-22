@@ -41,12 +41,12 @@
       desc: 'Чует скрытых врагов: Диверсанты в радиусе 2 клеток от него становятся видны всем. Удар в спину на нём не срабатывает.' },
     necromancer: { name: 'Некромант', hp: 5, move: 2, dmg: 1, range: 2, minRange: 1, cost: 3, price: 600, ability: 'raise',
       desc: 'Способность (Действие): поднимает до 3 зомби на соседних клетках (перезарядка 5 ходов, не больше 3 зомби одновременно). Если Некромант погибает — его зомби рассыпаются.' },
-    zombie: { name: 'Зомби', hp: 2, move: 2, dmg: 1, range: 1, minRange: 1, cost: 0, price: 0, noShop: true, summon: true,
-      desc: 'Поднят Некромантом. Управляется как обычный юнит. Рассыпается, если его Некромант погибает. Воскресить нельзя.' },
+    zombie: { name: 'Зомби', hp: 2, move: 2, dmg: 1, range: 1, minRange: 1, cost: 0, price: 0, noShop: true, summon: true, auto: true,
+      desc: 'Поднят Некромантом. Ходит сам: в конце вашего хода идёт к ближайшему видимому врагу и бьёт, если оказался рядом. Не тратит ваши активации. Живёт 3 хода, ящики не подбирает, рассыпается вместе с Некромантом.' },
     paramedic: { name: 'Парамедик', hp: 5, move: 3, dmg: 1, range: 1, minRange: 1, cost: 3, price: 550, ability: 'revive',
       desc: 'Способность (Действие): воскрешает союзника, погибшего не больше 3 раундов назад, если его надгробие в радиусе 2. Воскрешённый встаёт с половиной HP и ходит со следующего хода. Только 2 раза за игру. Командира воскресить нельзя.' },
-    poisoner: { name: 'Дротист', hp: 4, move: 3, dmg: 1, range: 3, minRange: 1, cost: 2, price: 450, poisonOnHit: true,
-      desc: 'Отравленный дротик: цель отравлена на 2 хода — в конце каждого своего хода теряет 1 HP (щит не спасает). Повторное попадание обновляет срок. Яд снимают Медик и Нано-аптечка.' },
+    poisoner: { name: 'Дротист', hp: 4, move: 3, dmg: 1, range: 3, minRange: 1, cost: 3, price: 450, poisonOnHit: true,
+      desc: 'Отравленный дротик: +1 стак яда (максимум 3) и срок 2 хода. В конце своего хода цель теряет по 1 HP за каждый стак (щит не спасает). Командир устойчив: не больше 1 урона от яда за ход. Яд снимают Медик и Нано-аптечка.' },
     // Особый юнит: в магазине его нет, выдаёт только администратор
     elephant: { name: 'Зелёный слоник', hp: 8, move: 3, dmg: 2, range: 2, minRange: 1, cost: 3, price: 0, special: true, ability: 'trumpet', knockback: true, trample: true,
       desc: 'Особый юнит — выдаёт только администратор. ТАРАН: ходит сквозь стены, ломая их, и сквозь врагов — враг на пути получает урон и отлетает (если некуда — +1 урона, и слоник останавливается). Атака отбрасывает цель. Способность: трубный рёв — враги вокруг получают 1 урона и отлетают.' },
@@ -63,9 +63,9 @@
     necromancer: 'skull', zombie: 'claw', paramedic: 'syringe', poisoner: 'poison',
   };
   const FREEZE = { range: 4, turns: 3, cooldown: 3 };
-  const RAISE = { count: 3, max: 3, cooldown: 5 }; // Некромант
+  const RAISE = { count: 3, max: 3, cooldown: 5, life: 3 }; // Некромант; зомби живут 3 хода
   const REVIVE = { uses: 2, rounds: 3, radius: 2 }; // Парамедик
-  const POISON = { turns: 2, dmg: 1 }; // Дротист
+  const POISON = { turns: 2, dmg: 1, maxStacks: 3, commanderCap: 1 }; // Дротист: стаки яда
   // Можно ли воскресить павшего юнита (для Парамедика и надгробий)
   function revivable(g, d) {
     if (!d || d.alive || d.diedRound == null) return false;
@@ -238,7 +238,7 @@
 
   // ---- Правила хода: до 2 разных юнитов за ход, у каждого 1 Движение + 1 Действие
   function canUseUnit(g, u) {
-    if (UNIT_TYPES[u.type].static) return false;
+    if (UNIT_TYPES[u.type].static || UNIT_TYPES[u.type].auto) return false; // турели и зомби действуют сами
     return g.activated.includes(u.id) || g.activated.length < 2;
   }
   // Диверсант скрыт, пока не атаковал недавно и рядом нет врагов
@@ -464,7 +464,7 @@
   }
   // Ход завершается автоматически, если ни один доступный юнит не может сделать ничего полезного
   function shouldAutoEnd(g) {
-    const own = g.units.filter((u) => u.alive && u.side === g.turn && !UNIT_TYPES[u.type].static);
+    const own = g.units.filter((u) => u.alive && u.side === g.turn && !UNIT_TYPES[u.type].static && !UNIT_TYPES[u.type].auto);
     const cands = g.activated.length >= 2 ? own.filter((u) => g.activated.includes(u.id)) : own;
     return cands.every((u) => !hasUsefulMove(g, u) && !hasUsefulAct(g, u));
   }

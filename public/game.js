@@ -542,7 +542,7 @@
 
   let noMovesFlash = null;
   function markUsed(u, kind) {
-    if (!view || u.side !== view.turn) return;
+    if (!view || u.side !== view.turn || R.UNIT_TYPES[u.type].auto) return; // зомби не тратят активации
     if (!view.activated.includes(u.id)) view.activated.push(u.id);
     if (kind === 'move') u.moved = true;
     else { u.acted = true; if (kind === 'attack') u.attacked = true; }
@@ -551,7 +551,7 @@
 
   // ---- окошко «Осталось ходов» под доской
   function movesLeft() {
-    const own = view.units.filter((u) => u.alive && u.side === view.turn && !R.UNIT_TYPES[u.type].static);
+    const own = view.units.filter((u) => u.alive && u.side === view.turn && !R.UNIT_TYPES[u.type].static && !R.UNIT_TYPES[u.type].auto);
     let n = 0;
     const slots = [];
     for (let i = 0; i < 2; i++) {
@@ -772,7 +772,8 @@
       case 'poison': {
         if (!u) return;
         u.poisoned = e.turns;
-        addFloat('ОТРАВЛЕН!', u.x, u.y, '#84cc16');
+        u.poisonStacks = e.stacks || 1;
+        addFloat(u.poisonStacks > 1 ? `ЯД ×${u.poisonStacks}` : 'ОТРАВЛЕН!', u.x, u.y, '#84cc16');
         burst(cellCenter(u.x, u.y), 12, ['#84cc16', '#4d7c0f', '#d9f99d'], 1.2, -1);
         Sound.poison();
         await wait(200);
@@ -781,6 +782,8 @@
       case 'poisontick': {
         if (!u) return;
         u.poisoned = e.left;
+        u.poisonStacks = e.stacks || 0;
+        if (e.dmg > 1) addFloat(`ЯД -${e.dmg}`, u.x, u.y, '#84cc16');
         burst(cellCenter(u.x, u.y), 8, ['#84cc16', '#d9f99d'], 1, -1);
         return;
       }
@@ -1250,7 +1253,9 @@
     const it = u.item ? R.ITEMS[u.item.type] : null;
     const rar = u.item ? R.RARITIES[u.item.tier || 0] : null;
     let status = '';
-    if (T.static) {
+    if (T.auto) {
+      status = `<div class="status-row"><span class="pip ok">Ходит сам в конце хода</span><span class="pip no">Рассыплется через ${u.life || 0} ${u.life === 1 ? 'ход' : 'хода'}</span></div>`;
+    } else if (T.static) {
       status = '<div class="status-row"><span class="pip ok">Стреляет сама в конце хода</span></div>';
     } else if (u.side === view.turn && !view.winner) {
       const usable = R.canUseUnit(view, u);
@@ -1261,7 +1266,11 @@
     let deb = '';
     if (u.slowed) deb += '<div class="debuff">⚠ Контузия: −1 к движению в этот ход</div>';
     if (u.slowNext) deb += '<div class="debuff">⚠ Контузия: −1 к движению в следующий ход</div>';
-    if (u.poisoned > 0) deb += `<div class="debuff" style="color:#84cc16">☠ Отравлен: −1 HP в конце своего хода, ещё ${u.poisoned} ${u.poisoned === 1 ? 'ход' : 'хода'}. Медик снимет яд</div>`;
+    if (u.poisoned > 0) {
+      const st = Math.max(1, u.poisonStacks || 1);
+      const pd = u.type === 'commander' ? Math.min(st, R.POISON.commanderCap) : st;
+      deb += `<div class="debuff" style="color:#84cc16">☠ Яд ×${st}: −${pd} HP в конце своего хода, ещё ${u.poisoned} ${u.poisoned === 1 ? 'ход' : 'хода'}${u.type === 'commander' && st > 1 ? ' (Командир устойчив)' : ''}. Медик снимет яд</div>`;
+    }
     if (u.raiseCd > 0) deb += `<div class="debuff" style="color:#a78bfa">💀 Подъём мертвецов перезаряжается: ${u.raiseCd} ход.</div>`;
     if (u.type === 'paramedic') deb += `<div class="debuff" style="color:#fde68a">✨ Воскрешений осталось: ${R.REVIVE.uses - (u.reviveUses || 0)} из ${R.REVIVE.uses}</div>`;
     if (u.frozen > 0) deb += `<div class="debuff" style="color:#a5f3fc">❄ Заморожен: не может двигаться ещё ${u.frozen} ${u.frozen === 1 ? 'ход' : 'хода'}</div>`;
@@ -1767,7 +1776,7 @@
       ctx.fillRect(gx + 4 * S, gy + 15 * S, 8 * S, S);
 
       let alpha = 1;
-      const stat = R.UNIT_TYPES[u.type].static;
+      const stat = R.UNIT_TYPES[u.type].static || R.UNIT_TYPES[u.type].auto;
       if (u.side === view.turn && !view.winner && !stat) {
         if (!R.canUseUnit(view, u)) alpha = 0.45;
         else if (view.activated.includes(u.id) && !R.canMove(view, u) && !R.canAct(view, u)) alpha = 0.5;
@@ -1782,7 +1791,7 @@
         ctx.fillStyle = '#84cc16';
         ctx.fillRect(gx + 3 * S, py + 3 * S, 10 * S, 12 * S);
         ctx.globalAlpha = 1;
-        for (let k = 0; k < 3; k++) {
+        for (let k = 0; k < Math.max(1, Math.min(3, u.poisonStacks || 1)); k++) {
           const ph2 = ((now / 600) + k / 3) % 1;
           ctx.fillStyle = k % 2 ? '#84cc16' : '#d9f99d';
           ctx.fillRect(snap(gx + (4 + k * 4) * S), snap(py + (6 - ph2 * 7) * S), S, S);

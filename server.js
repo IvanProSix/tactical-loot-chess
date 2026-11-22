@@ -280,7 +280,7 @@ function makeUnit(g, id, type, side, x, y) {
     id, type, side, x, y, hp: T.hp, maxHp: T.hp, alive: true, item: null,
     moved: false, acted: false, attacked: false, slowed: false, slowNext: false, boost: 0, revealUntil: null,
     buffs: { dmg: 0, range: 0, move: 0, steady: 0 }, frozen: 0, freezeCd: 0,
-    poisoned: 0, raiseCd: 0, reviveUses: 0, diedRound: null,
+    poisoned: 0, poisonStacks: 0, raiseCd: 0, reviveUses: 0, diedRound: null, life: null,
   };
   g.units.push(u);
   return u;
@@ -381,7 +381,7 @@ function damage(g, t, amount, opts) {
     t.alive = false;
     t.item = null;
     t.diedRound = g.round; // для воскрешения Парамедиком
-    t.poisoned = 0; t.frozen = 0;
+    t.poisoned = 0; t.poisonStacks = 0; t.frozen = 0;
     ev(g, 'death', { unitId: t.id, x: t.x, y: t.y });
     addLog(g, `☠ ${label(t)} уничтожен!`, 'death');
     if (t.type === 'necromancer') crumbleZombies(g, t);
@@ -401,10 +401,78 @@ function crumbleZombies(g, necro) {
 function poisonTick(g, side) {
   for (const u of g.units) {
     if (!u.alive || u.side !== side || !(u.poisoned > 0)) continue;
+    const stacks = Math.max(1, u.poisonStacks || 1);
+    let dmg = stacks * R.POISON.dmg;
+    if (u.type === 'commander') dmg = Math.min(dmg, R.POISON.commanderCap); // Командир устойчив к яду
     u.poisoned--;
-    ev(g, 'poisontick', { unitId: u.id, left: u.poisoned });
-    addLog(g, `☠ Яд: ${label(u)} −${R.POISON.dmg} HP${u.poisoned ? ` (ещё ${u.poisoned})` : ' — яд выветрился'}`, 'dmg');
-    damage(g, u, R.POISON.dmg, { pierce: true, noShield: true });
+    if (!u.poisoned) u.poisonStacks = 0;
+    ev(g, 'poisontick', { unitId: u.id, left: u.poisoned, stacks: u.poisonStacks, dmg });
+    addLog(g, `☠ Яд${stacks > 1 ? ` ×${stacks}` : ''}: ${label(u)} −${dmg} HP${u.poisoned ? ` (ещё ${u.poisoned})` : ' — яд выветрился'}`, 'dmg');
+    damage(g, u, dmg, { pierce: true, noShield: true });
+  }
+}
+
+// ---- ИИ зомби: в конце хода своей команды идут к ближайшему видимому врагу и бьют, если рядом
+function zombieHit(g, z, t) {
+  ev(g, 'shot', { unitId: z.id, from: { x: z.x, y: z.y }, to: { x: t.x, y: t.y }, kind: 'claw', side: z.side });
+  addLog(g, `🧟 ${label(z)} кусает ${label(t)}`, 'atk');
+  damage(g, t, R.unitDmg(z));
+}
+function zombiesAct(g, side) {
+  const zs = g.units.filter((z) => z.alive && z.side === side && R.UNIT_TYPES[z.type].auto);
+  for (const z of zs) {
+    if (!z.alive || g.winner) continue;
+    const foes = () => g.units.filter((o) => o.alive && o.side !== side && !R.isHidden(g, o));
+    if (!foes().length) return;
+    const adjFoe = (p) => foes().filter((f) => R.cheb(p, f) <= 1);
+    const strike = () => {
+      const t = adjFoe(z).sort((a, b) => a.hp - b.hp)[0];
+      if (!t) return false;
+      zombieHit(g, z, t);
+      return true;
+    };
+    if (strike()) continue;
+    if (z.frozen > 0) continue; // замороженный зомби стоит
+    // BFS по свободным клеткам (юниты, стены и ящики — препятствия; лут зомби не подбирают)
+    const start = R.key(z.x, z.y);
+    const prev = new Map([[start, -1]]);
+    const dist = new Map([[start, 0]]);
+    const q = [[z.x, z.y]];
+    let goal = null;
+    while (q.length) {
+      const [x, y] = q.shift();
+      const d = dist.get(R.key(x, y));
+      if (d > 0 && adjFoe({ x, y }).length) { goal = [x, y]; break; }
+      for (const [dx, dy] of R.DIR4) {
+        const nx = x + dx, ny = y + dy, k = R.key(nx, ny);
+        if (!R.inBounds(nx, ny) || dist.has(k) || R.isWall(g, nx, ny) || R.unitAt(g, nx, ny) || R.crateAt(g, nx, ny)) continue;
+        dist.set(k, d + 1); prev.set(k, R.key(x, y)); q.push([nx, ny]);
+      }
+    }
+    if (!goal) {
+      // к врагу не подойти вплотную — просто сближаемся
+      let bestK = null, bestD = Infinity;
+      const near = (k) => Math.min(...foes().map((f) => R.cheb({ x: k % N, y: Math.floor(k / N) }, f)));
+      for (const k of dist.keys()) { const dd = near(k); if (dd < bestD || (dd === bestD && dist.get(k) < dist.get(bestK))) { bestD = dd; bestK = k; } }
+      if (bestK != null && bestK !== start && bestD < near(start)) goal = [bestK % N, Math.floor(bestK / N)];
+    }
+    if (goal) {
+      const path = R.pathTo(prev, goal[0], goal[1]).slice(0, R.moveRange(z) + 1);
+      if (path.length > 1) travel(g, z, path);
+    }
+    if (z.alive) strike();
+  }
+}
+// Время жизни зомби: в конце хода своей команды −1; на нуле — рассыпается
+function zombiesDecay(g, side) {
+  for (const z of g.units) {
+    if (!z.alive || z.side !== side || z.life == null) continue;
+    z.life--;
+    if (z.life <= 0) {
+      z.alive = false; z.hp = 0; z.diedRound = g.round; z.poisoned = 0; z.poisonStacks = 0;
+      ev(g, 'death', { unitId: z.id, x: z.x, y: z.y, crumble: true });
+      addLog(g, `💀 ${label(z)} рассыпается в прах`, 'death');
+    }
   }
 }
 
@@ -436,7 +504,7 @@ function giveLoot(g, u, it, x, y) {
     const addMax = R.itemStat('medkit', it.tier, 'maxHp');
     u.maxHp += addMax;
     u.hp = Math.min(u.maxHp, u.hp + R.itemStat('medkit', it.tier, 'heal'));
-    u.slowed = false; u.slowNext = false; u.poisoned = 0;
+    u.slowed = false; u.slowNext = false; u.poisoned = 0; u.poisonStacks = 0;
     ev(g, 'heal', { unitId: u.id, amount: u.hp - before, hp: u.hp, maxHp: u.maxHp });
     addLog(g, `✚ ${tag}${label(u)}: ${full} — +${u.hp - before} HP${addMax ? `, макс. HP +${addMax}` : ''}`, 'heal', 'all', it.tier);
   } else if (R.ITEMS[it.type].inhibitor) {
@@ -627,11 +695,12 @@ function actAttack(g, side, a) {
   } else {
     damage(g, t, info.dmg);
     if (T.knockback) pushAway(g, u, t);
-    // Дротист: отравление (не складывается — срок обновляется)
+    // Дротист: +1 стак яда (до 3), срок обновляется до 2 ходов
     if (T.poisonOnHit && t.alive && !R.UNIT_TYPES[t.type].static) {
-      t.poisoned = Math.max(t.poisoned || 0, R.POISON.turns);
-      ev(g, 'poison', { unitId: t.id, turns: t.poisoned });
-      addLog(g, `☠ ${label(t)} отравлен на ${R.POISON.turns} хода`, 'dmg');
+      t.poisonStacks = Math.min(R.POISON.maxStacks, (t.poisonStacks || 0) + 1);
+      t.poisoned = R.POISON.turns;
+      ev(g, 'poison', { unitId: t.id, turns: t.poisoned, stacks: t.poisonStacks });
+      addLog(g, `☠ ${label(t)} отравлен: яд ×${t.poisonStacks} на ${R.POISON.turns} хода`, 'dmg');
     }
     // Ледяной маг: обычная атака замораживает (не сокращает уже наложенную заморозку)
     if (T.freezeOnHit && t.alive && !R.UNIT_TYPES[t.type].static && (t.frozen || 0) < T.freezeOnHit) {
@@ -660,7 +729,7 @@ function actAbility(g, side, a) {
     const before = t.hp;
     const cured = t.poisoned > 0;
     t.hp = Math.min(t.maxHp, t.hp + R.HEAL_AMOUNT);
-    t.poisoned = 0;
+    t.poisoned = 0; t.poisonStacks = 0;
     ev(g, 'heal', { unitId: t.id, amount: t.hp - before, hp: t.hp, cured });
     addLog(g, `✚ ${label(u)} лечит ${label(t)}: +${t.hp - before} HP${cured ? ', яд снят' : ''}`, 'heal');
   } else if (ab === 'raise') {
@@ -675,7 +744,7 @@ function actAbility(g, side, a) {
     for (let i = 0; i < n; i++) {
       const z = makeUnit(g, u.side[0] + 'z' + (g.seq++), 'zombie', u.side, cells[i][0], cells[i][1]);
       z.owner = u.id;
-      z.moved = true; z.acted = true; // поднятые зомби ходят со следующего хода
+      z.life = R.RAISE.life; // зомби живут 3 хода; ходят сами в конце хода
       ev(g, 'spawn', { unit: Object.assign({}, z), kind: 'zombie' });
     }
     u.raiseCd = R.RAISE.cooldown;
@@ -684,7 +753,7 @@ function actAbility(g, side, a) {
     const t = g.units.find((d) => d.side === u.side && !d.alive && d.x === x && d.y === y && R.revivable(g, d));
     t.alive = true;
     t.hp = Math.ceil(t.maxHp / 2);
-    t.poisoned = 0; t.frozen = 0; t.slowed = false; t.slowNext = false; t.boost = 0;
+    t.poisoned = 0; t.poisonStacks = 0; t.frozen = 0; t.slowed = false; t.slowNext = false; t.boost = 0;
     t.moved = true; t.acted = true; t.attacked = true; // в этот ход не действует
     t.diedRound = null;
     u.reviveUses = (u.reviveUses || 0) + 1;
@@ -811,10 +880,13 @@ function actMine(g, side, a) {
 function endTurn(g, reason) {
   const side = g.turn;
   if (reason === 'timeout') addLog(g, `⏱ Время ${SIDE_GEN[side]} истекло — ход передан`, 'sys');
+  zombiesAct(g, side);
+  if (checkWinner(g, side)) return;
   turretsFire(g, side);
   if (checkWinner(g, side)) return;
   poisonTick(g, side);
   if (checkWinner(g, R.other(side))) return;
+  zombiesDecay(g, side);
   for (const u of g.units) {
     if (u.side !== side) continue;
     u.moved = false; u.acted = false; u.attacked = false; u.slowed = false; u.boost = 0;
