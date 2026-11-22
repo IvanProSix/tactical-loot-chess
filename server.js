@@ -124,7 +124,7 @@ function serializeRoom(room) {
     slots[s] = sl ? { token: sl.token, name: sl.name, ready: sl.ready, playerId: sl.playerId || null, squad: sl.squad } : null;
   }
   // g.room — неперечисляемое свойство, в JSON не попадает
-  return { slots, phase: room.phase, solo: room.solo, game: room.game, rematch: room.rematch, rewards: room.rewards || null };
+  return { slots, phase: room.phase, solo: room.solo, tutorial: !!room.tutorial, game: room.game, rematch: room.rematch, rewards: room.rewards || null };
 }
 function persistRoom(room) {
   if (!rooms.has(room.code)) return;
@@ -154,7 +154,7 @@ async function restoreRooms() {
       if (sl && Array.isArray(sl.squad) && sl.squad.some((t) => !R.UNIT_TYPES[t])) sl.squad = R.DEFAULT_SQUAD.slice();
     }
     const room = {
-      code, slots: { blue: null, red: null }, phase: data.phase || 'lobby', solo: !!data.solo, game: data.game || null,
+      code, slots: { blue: null, red: null }, phase: data.phase || 'lobby', solo: !!data.solo, tutorial: !!data.tutorial, game: data.game || null,
       rematch: data.rematch || { blue: false, red: false }, rewards: data.rewards || null, turnTimer: null, emptySince: Date.now(),
     };
     for (const s of SIDES) {
@@ -481,7 +481,11 @@ const RARITY_ICON = ['', '◆ ', '◆◆ ', '★ ', '✦ '];
 
 function pickup(g, u, crate) {
   g.crates = g.crates.filter((c) => c !== crate);
-  const loot = rollLoot(g, u.side, u);
+  let loot;
+  if (g.room && g.room.tutorial && !g.tutLoot) {
+    g.tutLoot = true;
+    loot = { type: 'shield', tier: 1, charges: R.itemStat('shield', 1, 'charges') };
+  } else loot = rollLoot(g, u.side, u);
   giveLoot(g, u, loot, crate.x, crate.y);
   // Двойной дроп: рядом выпадает ещё один ящик
   if (Math.random() < R.doubleDropChance(g.luck[u.side], g.round)) {
@@ -916,7 +920,7 @@ function endTurn(g, reason) {
       addLog(g, `🍀 Клевер ${SIDE_GEN[g.turn]} закончился — удача сброшена, клевер снова может выпасть`, 'loot');
     }
   }
-  g.turnEndsAt = Date.now() + TURN_MS;
+  g.turnEndsAt = Date.now() + (g.room && g.room.tutorial ? 3600e3 : TURN_MS);
   ev(g, 'turn', { turn: g.turn, round: g.round });
   addLog(g, `— Раунд ${g.round}: ход ${SIDE_GEN[g.turn]}`, 'turn');
   scheduleTurnTimer(g.room);
@@ -1032,6 +1036,7 @@ function stateFor(room, viewer) {
     players: { blue: pl('blue'), red: pl('red') },
     rematch: Object.assign({}, room.rematch),
     rewards: room.phase === 'over' ? room.rewards : null,
+    tutorial: !!room.tutorial,
   };
 }
 function eventsFor(viewer, events) {
@@ -1045,6 +1050,18 @@ function eventsFor(viewer, events) {
 function broadcastState(room, events) {
   if (!room.game) return;
   persistRoom(room);
+  if (room.tutorial && room.phase === 'game' && room.game.turn === 'red' && !room.botTimer) {
+    const g = room.game;
+    room.botTimer = setTimeout(() => {
+      room.botTimer = null;
+      if (room.game !== g || room.phase !== 'game' || g.turn !== 'red') return;
+      g.events = [];
+      endTurn(g, 'manual');
+      const evs = g.events;
+      g.events = null;
+      broadcastState(room, evs);
+    }, 1200);
+  }
   for (const socket of roomSockets(room)) {
     const v = viewerOf(socket, room);
     socket.emit('state', { state: stateFor(room, v), events: eventsFor(v, events) });
@@ -1053,7 +1070,7 @@ function broadcastState(room, events) {
 function lobbyFor(socket, room) {
   const pub = (s) => (s ? { name: s.name, ready: s.ready, connected: s.connected, squad: s.squad, account: !!s.playerId } : null);
   return {
-    code: room.code, phase: room.phase, solo: room.solo, you: viewerOf(socket, room),
+    code: room.code, phase: room.phase, solo: room.solo, tutorial: !!room.tutorial, you: viewerOf(socket, room),
     slots: { blue: pub(room.slots.blue), red: pub(room.slots.red) },
   };
 }
@@ -1074,6 +1091,40 @@ function startGame(room, solo) {
   emitLobby(room);
   broadcastState(room, []);
   console.log(`[game] ${room.code}: новая партия ${room.game.id}${solo ? ' (1 экран)' : ''}`);
+}
+
+// ---------------------------------------------------------------- Обучение
+// Заготовленная позиция: раненый Командир (для Медика), ящик на пути Штурмовика,
+// мишени-разведчики и ослабленный вражеский Командир для финала.
+function createTutorialGame(room) {
+  const g = createGame(room);
+  g.walls = [{ x: 1, y: 3 }, { x: 5, y: 4 }, { x: 6, y: 4 }];
+  g.units = []; g.crates = []; g.mines = []; g.log = [];
+  const mk = (id, type, side, x, y, hp) => { const u = makeUnit(g, id, type, side, x, y); if (hp) u.hp = hp; return u; };
+  mk('b0', 'commander', 'blue', 3, 7, 6);
+  mk('b1', 'assault', 'blue', 2, 6);
+  mk('b2', 'sniper', 'blue', 5, 7);
+  mk('b3', 'medic', 'blue', 4, 6);
+  mk('r0', 'commander', 'red', 4, 1, 4);
+  mk('r1', 'scout', 'red', 2, 2, 2);
+  mk('r2', 'scout', 'red', 6, 2, 2);
+  addCrate(g, 2, 4);
+  addLog(g, '🎓 Обучение: враги — неподвижные мишени, таймера нет.', 'sys');
+  addLog(g, '— Раунд 1: ход Синих', 'turn');
+  return g;
+}
+function startTutorial(room) {
+  clearTimeout(room.turnTimer);
+  clearTimeout(room.botTimer); room.botTimer = null;
+  room.rewards = null;
+  room.game = createTutorialGame(room);
+  room.game.turnEndsAt = Date.now() + 3600e3;
+  room.phase = 'game';
+  room.rematch = { blue: false, red: false };
+  scheduleTurnTimer(room);
+  emitLobby(room);
+  broadcastState(room, []);
+  console.log(`[game] ${room.code}: обучение`);
 }
 
 function surrender(room, loser) {
@@ -1101,7 +1152,7 @@ function emitProfile(playerId) {
 }
 function settleRewards(room, g) {
   room.rewards = null;
-  if (room.solo) return;
+  if (room.solo || room.tutorial) return;
   const ws = room.slots[g.winner], ls = room.slots[R.other(g.winner)];
   if (!ws || !ls || !ws.playerId || !ls.playerId || ws.playerId === ls.playerId) {
     room.rewards = { note: 'Монеты получают только игроки с аккаунтами' };
@@ -1172,7 +1223,7 @@ function leaveRoom(socket) {
   info.code = null;
   if (!room) return;
   const viewer = viewerOf(socket, room);
-  if (viewer === 'both') return deleteRoom(room);
+  if (viewer === 'both' || room.tutorial) { clearTimeout(room.botTimer); return deleteRoom(room); }
   if (viewer === 'blue' || viewer === 'red') {
     const sl = room.slots[viewer];
     if (room.phase === 'game') surrender(room, viewer);
@@ -1196,6 +1247,7 @@ function publicRooms() {
   const open = [];
   let games = 0;
   for (const room of rooms.values()) {
+    if (room.tutorial) continue;
     if (room.phase !== 'lobby') { if (!room.solo) games++; continue; }
     if (room.solo) continue;
     const seated = SIDES.map((s) => room.slots[s]).filter(Boolean);
@@ -1381,6 +1433,21 @@ io.on('connection', (socket) => {
   });
 
   // Тренировка: отдельная приватная комната, обе команды у одного игрока
+  socket.on('tutorial', () => {
+    const info = socketsInfo.get(socket.id);
+    if (!info) return;
+    if (rooms.size >= MAX_ROOMS) return socket.emit('errorMsg', 'Сервер переполнен, попробуйте позже');
+    if (roomSpam()) return socket.emit('errorMsg', 'Слишком много комнат, подождите немного');
+    if (info.code) leaveRoom(socket);
+    const room = createRoom(false);
+    room.tutorial = true;
+    info.code = room.code;
+    socket.join('r:' + room.code);
+    room.slots.blue = Object.assign(seatFor(info, socket, true), { squad: ['sniper', 'assault', 'medic'] });
+    room.slots.red = { token: 'tutorial-bot', name: 'Мишени', ready: true, connected: true, socketId: null, graceTimer: null, playerId: null, squad: [] };
+    startTutorial(room);
+  });
+
   socket.on('solo', () => {
     const info = socketsInfo.get(socket.id);
     if (!info) return;
@@ -1420,6 +1487,7 @@ io.on('connection', (socket) => {
     const viewer = viewerOf(socket, room);
     if (!viewer) return;
     if (viewer === 'both') return startGame(room, true);
+    if (room.tutorial) return startTutorial(room); // «ещё раз» в обучении
     room.rematch[viewer] = true;
     if (room.rematch.blue && room.rematch.red) startGame(room, false);
     else broadcastState(room, []);
@@ -1430,7 +1498,7 @@ io.on('connection', (socket) => {
     if (!room) return;
     const viewer = viewerOf(socket, room);
     if (!viewer || room.phase === 'lobby') return;
-    if (room.solo) { leaveRoom(socket); return socket.emit('menu'); }
+    if (room.solo || room.tutorial) { leaveRoom(socket); return socket.emit('menu'); }
     clearTimeout(room.turnTimer);
     room.phase = 'lobby';
     room.game = null;

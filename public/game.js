@@ -178,6 +178,7 @@
     anims.clear(); projectiles.length = 0; booms.length = 0; particles.length = 0; floats.length = 0;
     $('overlay').classList.add('hidden');
     stopCountdown();
+    if (typeof tutorStop === 'function' && tut.active) tutorStop();
     setPending(false);
     updateScreens();
   }
@@ -492,6 +493,155 @@
     });
   }
 
+  // ------------------------------------------------------------ ОБУЧЕНИЕ (проводник Клод)
+  const TUT_DONE_KEY = 'tlc_tutorial_done';
+  const tut = { active: false, step: 0, flags: {}, gameId: null, typing: null, shown: -1 };
+  const tUnit = (id) => (view ? view.units.find((u) => u.id === id && u.alive) : null);
+  const tCell = (u) => (u ? [{ x: u.x, y: u.y }] : []);
+  const TUT_STEPS = [
+    {
+      text: 'Привет! Я Клод — проведу тебя по игре. Цель простая: уничтожить вражеского Командира — он в короне, наверху. Своего Командира береги: если он падёт — поражение.',
+      next: true, hl: () => tCell(tUnit('r0')).concat(tCell(tUnit('b0'))),
+    },
+    {
+      text: 'Твой отряд — синие, внизу. Нажми на Штурмовика, чтобы выбрать его. Справа появится его карточка: здоровье, урон, дальность.',
+      hl: () => tCell(tUnit('b1')), done: () => selectedId === 'b1' || tut.flags.loot || tut.flags.moved,
+    },
+    {
+      text: 'Голубые клетки — куда юнит может пойти. Видишь ящик с вопросом? Наступи на него — внутри лут.',
+      hl: () => (view.crates[0] ? [{ x: view.crates[0].x, y: view.crates[0].y }] : []), done: () => tut.flags.loot,
+    },
+    {
+      text: 'Это Энергощит — он висит над головой юнита и описан в карточке. Щит поглотит следующее попадание. Лут бывает разной редкости: чем реже, тем сильнее. Ящики падают каждые 2 раунда.',
+      next: true, hl: () => tCell(tUnit('b1')),
+    },
+    {
+      text: 'Теперь атака. Враги в красной рамке — в зоне выстрела. Выбери Штурмовика и нажми на вражеского Разведчика. Совет: наведи курсор на врага — увидишь, сколько урона нанесёшь.',
+      hl: () => tCell(tUnit('r1')), done: () => tut.flags.hit,
+    },
+    {
+      text: 'Попал! Главное правило: за ход можно задействовать 2 разных юнитов, у каждого — 1 Движение и 1 Действие. Сколько осталось — показано под полем.',
+      next: true, el: 'movesBox',
+    },
+    {
+      text: 'У многих юнитов есть способности. Выбери Медика, нажми «★ Лечить» в его карточке, а потом — на раненого Командира рядом.',
+      hl: () => (selectedId === 'b3' ? tCell(tUnit('b0')) : tCell(tUnit('b3'))), done: () => tut.flags.healed,
+    },
+    {
+      text: 'Когда сделаешь всё, что хотел, нажми «Завершить ход» (или Enter) — ход перейдёт к сопернику. Неиспользованные действия не копятся.',
+      el: 'btnEndTurn', done: () => view.round >= 2 && view.turn === 'blue',
+    },
+    {
+      text: 'Соперник походил — здесь это мишени, они стоят на месте. В настоящем бою на ход даётся 60 секунд. Отменить выбор — ПКМ или Esc, на телефоне — кнопка «Отмена».',
+      next: true, el: 'btnCancel',
+    },
+    {
+      text: 'Финал! Добей вражеского Командира — используй кого хочешь. Учти: Снайпер бьёт далеко, но не может двигаться и стрелять в один ход.',
+      hl: () => tCell(tUnit('r0')), done: () => !!view.winner,
+    },
+    {
+      text: 'Победа! 🎉 Ты готов к бою. В меню создай комнату и отправь ссылку другу. С аккаунтом откроются монеты, магазин юнитов, свой отряд, рудник и ежедневные награды. Перепройти обучение можно кнопкой «🎓 Обучение».',
+      final: true,
+    },
+  ];
+  function drawGuideTo(cv, size) {
+    drawSpriteTo(cv, 'guide', null, size);
+  }
+  function tutorStart() {
+    tut.active = true; tut.step = 0; tut.flags = {}; tut.shown = -1; tut.gameId = state && state.gameId;
+    $('tutor').classList.remove('hidden');
+    drawGuideTo($('tutorAvatar'), 64);
+    tutorRender();
+  }
+  function tutorStop() {
+    tut.active = false;
+    clearInterval(tut.typing);
+    $('tutor').classList.add('hidden');
+    document.querySelectorAll('.tutor-glow').forEach((e) => e.classList.remove('tutor-glow'));
+  }
+  function tutorMarkDone() { store.set(localStorage, TUT_DONE_KEY, '1'); }
+  function tutorRender() {
+    const st = TUT_STEPS[tut.step];
+    if (!st) return;
+    if (tut.shown !== tut.step) {
+      tut.shown = tut.step;
+      Sound.select();
+      const box = $('tutor');
+      box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
+      // печать текста по буквам; клик по облачку — показать сразу
+      const el = $('tutorText');
+      clearInterval(tut.typing);
+      let i = 0;
+      el.textContent = '';
+      tut.typing = setInterval(() => {
+        i += 2;
+        el.textContent = st.text.slice(0, i);
+        if (i >= st.text.length) clearInterval(tut.typing);
+      }, 16);
+      $('tutorStep').textContent = st.final ? '' : `${tut.step + 1} / ${TUT_STEPS.length - 1}`;
+      if (st.final) tutorMarkDone();
+    }
+    $('tutorNext').classList.toggle('hidden', !st.next && !st.final);
+    $('tutorNext').textContent = st.final ? 'В меню' : 'Далее ▶';
+    $('tutorAgain').classList.toggle('hidden', !st.final);
+    $('tutorSkip').classList.toggle('hidden', !!st.final);
+    document.querySelectorAll('.tutor-glow').forEach((e) => e.classList.remove('tutor-glow'));
+    if (st.el && $(st.el)) $(st.el).classList.add('tutor-glow');
+  }
+  // проверка выполнения текущего шага (вызывается после событий и выбора юнита)
+  function tutorTick() {
+    if (!tut.active || !view) return;
+    let moved = false;
+    while (TUT_STEPS[tut.step] && TUT_STEPS[tut.step].done && TUT_STEPS[tut.step].done()) { tut.step++; moved = true; }
+    if (view.winner && !TUT_STEPS[tut.step].final) { tut.step = TUT_STEPS.length - 1; moved = true; }
+    if (moved || tut.shown !== tut.step) tutorRender();
+  }
+  function tutorEvent(e, u) {
+    if (!tut.active) return;
+    if (e.type === 'pickup') tut.flags.loot = true;
+    if (e.type === 'move' && u && u.side === 'blue') tut.flags.moved = true;
+    if ((e.type === 'damage' || e.type === 'shield' || e.type === 'death') && u && u.side === 'red') tut.flags.hit = true;
+    if (e.type === 'heal') tut.flags.healed = true;
+  }
+  function drawTutor(now) {
+    if (!tut.active || animating) return;
+    const st = TUT_STEPS[tut.step];
+    if (!st || !st.hl) return;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 160);
+    for (const c of st.hl()) {
+      frameCell(c.x, c.y, `rgba(250,204,21,${0.55 + 0.45 * pulse})`, S, 0);
+      // прыгающая стрелка над клеткой
+      const cx = (fx(c.x) + 0.5) * C, top = fx(c.y) * C - (4 + 3 * pulse) * S;
+      ctx.fillStyle = '#facc15';
+      for (let r = 0; r < 3; r++) ctx.fillRect(snap(cx - (3 - r) * S), snap(top - (3 - r) * S), (6 - 2 * r) * S, S);
+      ctx.fillStyle = '#111';
+      ctx.fillRect(snap(cx - 4 * S), snap(top - 4 * S), 8 * S, S);
+    }
+  }
+  $('tutorNext').onclick = () => {
+    const st = TUT_STEPS[tut.step];
+    if (st && st.final) { tutorStop(); socket.emit('leaveRoom'); return; }
+    if (st && st.next) { tut.step++; tutorRender(); tutorTick(); }
+  };
+  $('tutorAgain').onclick = () => { tutorStop(); socket.emit('rematch'); };
+  $('tutorSkip').onclick = () => {
+    if (!confirm('Пропустить обучение? Вернуться к нему можно кнопкой «🎓 Обучение» в меню.')) return;
+    tutorMarkDone(); tutorStop(); socket.emit('leaveRoom');
+  };
+  $('tutorText').onclick = () => {
+    const st = TUT_STEPS[tut.step];
+    if (st) { clearInterval(tut.typing); $('tutorText').textContent = st.text; }
+  };
+  function startTutorialGame() { Sound.unlock(); $('tutorInvite').classList.add('hidden'); socket.emit('tutorial'); }
+  $('btnTutorial').onclick = startTutorialGame;
+  $('inviteGo').onclick = startTutorialGame;
+  $('inviteNo').onclick = () => { tutorMarkDone(); $('tutorInvite').classList.add('hidden'); Sound.click(); };
+  function renderTutorInvite() {
+    const show = store.get(localStorage, TUT_DONE_KEY) !== '1';
+    $('tutorInvite').classList.toggle('hidden', !show);
+    if (show) drawGuideTo($('inviteAvatar'), 48);
+  }
+
   // ------------------------------------------------------------ очередь событий → анимации
   function enqueue(msg) {
     const s = msg.state;
@@ -596,7 +746,7 @@
         if (n === 1 || n === 2) cls += ' low';
       }
     }
-    box.className = cls + ' ' + view.turn;
+    box.className = cls + ' ' + view.turn + (tut.active && TUT_STEPS[tut.step] && TUT_STEPS[tut.step].el === 'movesBox' ? ' tutor-glow' : '');
     box.innerHTML = html;
   }
 
@@ -604,6 +754,7 @@
 
   async function playEvent(e) {
     const u = e.unitId ? vUnit(e.unitId) : null;
+    tutorEvent(e, u);
     switch (e.type) {
       case 'move': {
         if (!u) return;
@@ -949,6 +1100,9 @@
 
   // ------------------------------------------------------------ синхронизация UI
   function onSynced() {
+    if (state && state.tutorial && state.phase !== 'lobby') {
+      if (!tut.active || tut.gameId !== state.gameId) tutorStart();
+    } else if (tut.active) tutorStop();
     flipped = view.you === 'red';
     deadline = nowMs() + (state.turnLeftMs || 0);
     if (selectedId && !selUnit()) selectedId = null;
@@ -964,6 +1118,7 @@
     renderCard();
     renderLog();
     renderOverlay();
+    tutorTick();
   }
 
   function updateScreens() {
@@ -1004,6 +1159,7 @@
     const ni = $('nameInput');
     if (document.activeElement !== ni) ni.value = myName;
     renderAccount();
+    renderTutorInvite();
   }
   function refreshRooms() {
     if (!socket.connected || screenNow !== 'menu') return;
@@ -1205,7 +1361,7 @@
     $('btnEndTurn').disabled = !canInput();
     renderMoves();
     $('btnSurrender').disabled = !view.you || !!view.winner || state.phase !== 'game';
-    $('btnSurrender').classList.toggle('hidden', !view.you);
+    $('btnSurrender').classList.toggle('hidden', !view.you || !!state.tutorial);
     $('btnLeaveGame').classList.toggle('hidden', !!view.you);
 
     const w = $('warn');
@@ -1357,7 +1513,7 @@
 
   function renderOverlay() {
     const ov = $('overlay');
-    if (!state || state.phase !== 'over' || !view.winner) { ov.classList.add('hidden'); return; }
+    if (!state || state.phase !== 'over' || !view.winner || state.tutorial) { ov.classList.add('hidden'); if (state && state.tutorial && view && view.winner && overShownFor !== state.gameId) { overShownFor = state.gameId; Sound.victory(); } return; }
     const w = view.winner;
     const h = $('overTitle');
     let sub;
@@ -1415,6 +1571,7 @@
     selectedId = id;
     mode = 'normal';
     renderCard();
+    tutorTick();
   }
   function cancel() {
     if (mode !== 'normal') { mode = 'normal'; renderCard(); }
@@ -1735,7 +1892,7 @@
       ctx.drawImage(Sprites.get('crate'), px, snap(py + yo), C, C);
     }
     for (const d of view.units) {
-      if (!R.revivable(view, d) || R.unitAt(view, d.x, d.y)) continue;
+      if (!R.revivable(view, d) || R.unitAt(view, d.x, d.y) || !R.hasReviver(view, d.side)) continue; // надгробия — только если есть кому воскрешать
       const px = fx(d.x) * C, py = fx(d.y) * C;
       ctx.globalAlpha = 0.85;
       ctx.drawImage(Sprites.get('grave'), px, py, C, C);
@@ -2138,6 +2295,7 @@
     drawObjects(now);
     drawUnits(now);
     drawHover(now);
+    drawTutor(now);
     drawFx(now, dt);
   }
 
@@ -2145,6 +2303,7 @@
     if (!state || !view) return;
     const el = $('timer');
     if (state.phase !== 'game') { el.textContent = '--'; el.classList.remove('warn'); $('timerFill').style.width = '0%'; return; }
+    if (state.tutorial) { if (el.textContent !== '∞') { el.textContent = '∞'; el.classList.remove('warn'); $('timerFill').style.width = '100%'; } return; }
     const left = Math.max(0, deadline - now);
     const sec = Math.ceil(left / 1000);
     if (el.textContent !== String(sec)) {

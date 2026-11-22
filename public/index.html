@@ -20,6 +20,14 @@
       <h1 class="logo" data-text="TACTICAL"><span class="logo-main glitch" data-text="TACTICAL">TACTICAL</span><span class="logo-sub">LOOT CHESS</span></h1>
       <p class="subtitle"><span id="typeLine"></span><span class="caret">_</span></p>
 
+      <div id="tutorInvite" class="tutor-invite hidden">
+        <canvas id="inviteAvatar" class="tutor-avatar small"></canvas>
+        <div class="tutor-invite-body">
+          <div class="tutor-name">Клод</div>
+          <div class="tutor-invite-text">Привет! Впервые здесь? Покажу, как играть, — займёт пару минут.</div>
+          <div class="tutor-btns"><button id="inviteGo" class="btn small primary">🎓 Пройти обучение</button><button id="inviteNo" class="btn small">Не сейчас</button></div>
+        </div>
+      </div>
       <div id="accountBar" class="account-bar enter" style="--d:.3s"></div>
       <div id="econBar" class="econ-bar enter hidden" style="--d:.4s"></div>
 
@@ -34,6 +42,7 @@
           <button id="btnJoin" class="btn">Войти</button>
         </div>
         <button id="btnSolo" class="btn">Тренировка на одном экране</button>
+        <button id="btnTutorial" class="btn">🎓 Обучение</button>
       </div>
 
       <div class="menu-cols enter" style="--d:.65s">
@@ -83,6 +92,20 @@
       </div>
     </div>
   </section>
+
+  <!-- ОБУЧЕНИЕ: проводник Клод -->
+  <div id="tutor" class="tutor hidden">
+    <canvas id="tutorAvatar" class="tutor-avatar"></canvas>
+    <div class="tutor-body">
+      <div class="tutor-head"><span class="tutor-name">Клод</span><span id="tutorStep" class="tutor-step"></span></div>
+      <div id="tutorText" class="tutor-text"></div>
+      <div class="tutor-btns">
+        <button id="tutorNext" class="btn small primary">Далее ▶</button>
+        <button id="tutorAgain" class="btn small hidden">Ещё раз</button>
+        <button id="tutorSkip" class="btn small">Пропустить обучение</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ОТСЧЁТ ПЕРЕД БОЕМ -->
   <div id="countdown" class="countdown hidden"><div id="countNum" class="count-num"></div></div>

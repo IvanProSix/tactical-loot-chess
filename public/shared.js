@@ -52,8 +52,8 @@
       desc: 'Особый юнит — выдаёт только администратор. ТАРАН: ходит сквозь стены, ломая их, и сквозь врагов — враг на пути получает урон и отлетает (если некуда — +1 урона, и слоник останавливается). Атака отбрасывает цель. Способность: трубный рёв — враги вокруг получают 1 урона и отлетают.' },
     icemage: { name: 'Ледяной маг', hp: 6, move: 2, dmg: 1, range: 3, minRange: 1, cost: 3, price: 0, special: true, ability: 'freeze', freezeOnHit: 1,
       desc: 'Особый юнит — выдаёт только администратор. Способность (Действие): ледяной залп — враг в радиусе 4 на линии огня получает 1 урона и не может двигаться 3 своих хода (стрелять может). Перезарядка — 3 хода. Обычная атака замораживает на 1 ход.' },
-    turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 2, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
-      desc: 'Стоит на месте. В конце хода своей команды стреляет по ближайшему врагу в радиусе 2.' },
+    turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 3, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
+      desc: 'Стоит на месте. В конце хода своей команды стреляет по самому раненому врагу в радиусе 3.' },
   };
   // Вид снаряда у каждого юнита (влияет только на анимацию и звук)
   const SHOT_KIND = {
@@ -67,6 +67,10 @@
   const REVIVE = { uses: 2, rounds: 3, radius: 2 }; // Парамедик
   const POISON = { turns: 2, dmg: 1, maxStacks: 3, commanderCap: 1 }; // Дротист: стаки яда
   // Можно ли воскресить павшего юнита (для Парамедика и надгробий)
+  // Есть ли у команды живой Парамедик с неизрасходованными воскрешениями (иначе надгробий нет)
+  function hasReviver(g, side) {
+    return g.units.some((p) => p.alive && p.side === side && UNIT_TYPES[p.type].ability === 'revive' && (p.reviveUses || 0) < REVIVE.uses);
+  }
   function revivable(g, d) {
     if (!d || d.alive || d.diedRound == null) return false;
     const T = UNIT_TYPES[d.type];
@@ -476,7 +480,7 @@
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS,
     BUFF_CAP, rammable, unitDmg, unitRange, isBehind, sniperLocked,
     canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
-    SHOT_KIND, FREEZE, RAISE, REVIVE, POISON, revivable, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
+    SHOT_KIND, FREEZE, RAISE, REVIVE, POISON, revivable, hasReviver, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
     squadError, squadCost, isHidden, abilityTargets,
     jetpackCells, mineCells, hasUsefulMove, hasUsefulAct, shouldAutoEnd,
   };
