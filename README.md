@@ -14,9 +14,9 @@ node server.js
 ```
 Откройте http://localhost:3000. Другой порт: `PORT=3001 node server.js`.
 
-## Хостинг на Render (бесплатный тариф)
-Сервер сам пингует свой адрес (`RENDER_EXTERNAL_URL`) раз в 10 минут, чтобы бесплатный инстанс не засыпал.
-Отключить: переменная окружения `KEEP_AWAKE=0`. Партии хранятся в памяти — при деплое/перезапуске текущие матчи прерываются.
+## Где работает игра
+Свой сервер (Debian, nginx → Node.js на 127.0.0.1:3001, локальный Postgres), сайт: https://tactical-loot-chess-like.38-97-56-42.sslip.io/
+HTTPS — бесплатный сертификат Let's Encrypt, продлевается автоматически (certbot.timer). Выкладка кода: `deploy/deploy.sh`.
 
 ## База данных и админы (Render → Environment)
 - `DATABASE_URL` — строка подключения Postgres (Neon). Без неё прогресс хранится в `data/players.json` (только для локального запуска).
@@ -33,4 +33,4 @@ node server.js
 - `public/game.js`: клиент (меню, комнаты, Canvas, анимации, UI), `public/menubg.js`: живой фон меню
 - `public/sprites.js`: спрайты 16x16, `public/sound.js`: синтезатор Web Audio (эффекты и музыка меню)
 
-https://tactical-loot-chess-like.onrender.com/
+https://tactical-loot-chess-like.38-97-56-42.sslip.io/
