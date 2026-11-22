@@ -36,12 +36,20 @@ const server = http.createServer(app);
 const io = new Server(server, { pingInterval: 10000, pingTimeout: 10000, maxHttpBufferSize: 16 * 1024 });
 
 // ---------------------------------------------------------------- Ограничения (анти-спам / анти-перебор)
-// IP клиента. Render стоит за Cloudflare: True-Client-IP / CF-Connecting-IP проставляет сам прокси
-// (клиент их подделать не может). Первый адрес из X-Forwarded-For клиент может подставить сам — его не берём.
+// IP клиента (для лимитов). Кому доверять — зависит от того, кто стоит перед игрой:
+//  • Render (переменная RENDER задаётся автоматически) — Cloudflare, его True-Client-IP / CF-Connecting-IP
+//    подделать нельзя;
+//  • свой сервер с nginx — только X-Real-IP / последний адрес X-Forwarded-For, их ставит nginx.
+//    Заголовки Cloudflare здесь присылает сам клиент, поэтому им не верим.
+// Первый адрес из X-Forwarded-For клиент может подставить сам — его не берём нигде.
+const BEHIND_CLOUDFLARE = !!process.env.RENDER || process.env.TRUST_CLOUDFLARE === '1';
 function ipOf(socket) {
   const h = socket.handshake.headers;
   const xf = String(h['x-forwarded-for'] || '').split(',').map((v) => v.trim()).filter(Boolean);
-  return String(h['true-client-ip'] || h['cf-connecting-ip'] || xf[xf.length - 1] || socket.handshake.address || '?').slice(0, 64);
+  const ip = BEHIND_CLOUDFLARE
+    ? (h['true-client-ip'] || h['cf-connecting-ip'] || xf[xf.length - 1])
+    : (h['x-real-ip'] || xf[xf.length - 1]);
+  return String(ip || socket.handshake.address || '?').slice(0, 64);
 }
 // Счётчик событий в скользящем окне: hit(key, limit, windowMs) → true, если лимит превышен
 const hits = new Map();
