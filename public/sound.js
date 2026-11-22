@@ -260,6 +260,18 @@ const Sound = (() => {
           noise({ f: 2000, f2: 8000, dur: 0.3, vol: 0.1, filter: 'bandpass', q: 2 });
           tone({ type: 'sine', f: 1200, f2: 2600, dur: 0.3, vol: 0.06 });
           return;
+        case 'poison':
+          noise({ f: 5000, f2: 1800, dur: 0.12, vol: 0.12, filter: 'bandpass', q: 2 });
+          tone({ type: 'sine', f: 380, f2: 620, dur: 0.08, vol: 0.05, delay: 0.1 });
+          return;
+        case 'skull':
+          tone({ type: 'sawtooth', f: 260, f2: 130, dur: 0.3, vol: 0.08 });
+          tone({ type: 'sine', f: 520, f2: 390, dur: 0.3, vol: 0.05 });
+          return;
+        case 'claw':
+          noise({ f: 2500, f2: 900, dur: 0.15, vol: 0.14, filter: 'bandpass', q: 1.5 });
+          tone({ type: 'square', f: 140, f2: 90, dur: 0.12, vol: 0.06 });
+          return;
         case 'scan':
           for (let i = 0; i < 2; i++) tone({ type: 'sine', f: 1500 - i * 300, f2: 2200 - i * 300, dur: 0.12, vol: 0.07, delay: i * 0.09 });
           return;
@@ -277,6 +289,19 @@ const Sound = (() => {
       noise({ f: 4000, f2: 9000, dur: 0.4, vol: 0.05, filter: 'bandpass', q: 4, delay: 0.1 });
     },
     thaw() { [1760, 1318, 988].forEach((f, i) => tone({ type: 'sine', f, dur: 0.12, vol: 0.04, delay: i * 0.06 })); },
+    raise() {
+      tone({ type: 'sawtooth', f: 110, f2: 70, dur: 0.7, vol: 0.12 });
+      tone({ type: 'square', f: 233, f2: 196, dur: 0.6, vol: 0.05, delay: 0.1 });
+      noise({ f: 400, f2: 150, dur: 0.6, vol: 0.12, filter: 'lowpass' });
+    },
+    crumble() { noise({ f: 1200, f2: 300, dur: 0.35, vol: 0.12, filter: 'bandpass', q: 1 }); },
+    revive() {
+      notes([[523, 0.08], [659, 0.08], [784, 0.08], [1047, 0.08], [1319, 0.35]], 'triangle', 0.09, 0.005);
+      tone({ type: 'sine', f: 2093, dur: 0.5, vol: 0.04, delay: 0.3 });
+    },
+    poison() {
+      for (let i = 0; i < 3; i++) tone({ type: 'sine', f: 300 + i * 90, f2: 520 + i * 90, dur: 0.07, vol: 0.06, delay: i * 0.06 });
+    },
     trumpet() {
       tone({ type: 'sawtooth', f: 180, f2: 330, dur: 0.25, vol: 0.14 });
       tone({ type: 'sawtooth', f: 330, f2: 300, dur: 0.45, vol: 0.14, delay: 0.24 });

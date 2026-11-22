@@ -6,7 +6,7 @@ const MenuBG = (() => {
   const CELL = 16;
   const FRAME_MS = 1000 / 30;
   const TYPES = ['commander', 'assault', 'sniper', 'scout', 'medic', 'grenadier', 'heavy', 'engineer',
-    'saboteur', 'drone', 'shieldbearer', 'signaller'];
+    'saboteur', 'drone', 'shieldbearer', 'signaller', 'tracker', 'necromancer', 'zombie', 'paramedic', 'poisoner'];
   const RARITY = ['#cbd5e1', '#38bdf8', '#c084fc', '#f59e0b', '#f43f5e'];
 
   let cv = null, ctx = null, W = 0, H = 0, GW = 0, GH = 0, WW = 0, WH = 0;

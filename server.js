@@ -280,6 +280,7 @@ function makeUnit(g, id, type, side, x, y) {
     id, type, side, x, y, hp: T.hp, maxHp: T.hp, alive: true, item: null,
     moved: false, acted: false, attacked: false, slowed: false, slowNext: false, boost: 0, revealUntil: null,
     buffs: { dmg: 0, range: 0, move: 0, steady: 0 }, frozen: 0, freezeCd: 0,
+    poisoned: 0, raiseCd: 0, reviveUses: 0, diedRound: null,
   };
   g.units.push(u);
   return u;
@@ -362,7 +363,7 @@ function damage(g, t, amount, opts) {
     amount -= 1;
     ev(g, 'aura', { unitId: t.id });
   }
-  if (t.item && t.item.type === 'shield') {
+  if (t.item && t.item.type === 'shield' && !(opts && opts.noShield)) {
     const heal = R.itemStat('shield', t.item.tier, 'heal');
     t.item.charges--;
     const left = t.item.charges;
@@ -379,10 +380,32 @@ function damage(g, t, amount, opts) {
   if (t.hp <= 0) {
     t.alive = false;
     t.item = null;
+    t.diedRound = g.round; // для воскрешения Парамедиком
+    t.poisoned = 0; t.frozen = 0;
     ev(g, 'death', { unitId: t.id, x: t.x, y: t.y });
     addLog(g, `☠ ${label(t)} уничтожен!`, 'death');
+    if (t.type === 'necromancer') crumbleZombies(g, t);
   }
   return amount;
+}
+// Некромант погиб — его зомби рассыпаются
+function crumbleZombies(g, necro) {
+  const zs = g.units.filter((z) => z.alive && z.type === 'zombie' && z.owner === necro.id);
+  for (const z of zs) {
+    z.alive = false; z.hp = 0; z.item = null; z.diedRound = g.round;
+    ev(g, 'death', { unitId: z.id, x: z.x, y: z.y, crumble: true });
+  }
+  if (zs.length) addLog(g, `💀 Зомби ${SIDE_GEN[necro.side]} рассыпаются в прах (${zs.length})`, 'death');
+}
+// Яд: в конце хода своей команды отравленный теряет HP
+function poisonTick(g, side) {
+  for (const u of g.units) {
+    if (!u.alive || u.side !== side || !(u.poisoned > 0)) continue;
+    u.poisoned--;
+    ev(g, 'poisontick', { unitId: u.id, left: u.poisoned });
+    addLog(g, `☠ Яд: ${label(u)} −${R.POISON.dmg} HP${u.poisoned ? ` (ещё ${u.poisoned})` : ' — яд выветрился'}`, 'dmg');
+    damage(g, u, R.POISON.dmg, { pierce: true, noShield: true });
+  }
 }
 
 const itemCopy = (it) => (it ? Object.assign({}, it) : null);
@@ -413,7 +436,7 @@ function giveLoot(g, u, it, x, y) {
     const addMax = R.itemStat('medkit', it.tier, 'maxHp');
     u.maxHp += addMax;
     u.hp = Math.min(u.maxHp, u.hp + R.itemStat('medkit', it.tier, 'heal'));
-    u.slowed = false; u.slowNext = false;
+    u.slowed = false; u.slowNext = false; u.poisoned = 0;
     ev(g, 'heal', { unitId: u.id, amount: u.hp - before, hp: u.hp, maxHp: u.maxHp });
     addLog(g, `✚ ${tag}${label(u)}: ${full} — +${u.hp - before} HP${addMax ? `, макс. HP +${addMax}` : ''}`, 'heal', 'all', it.tier);
   } else if (R.ITEMS[it.type].inhibitor) {
@@ -604,6 +627,12 @@ function actAttack(g, side, a) {
   } else {
     damage(g, t, info.dmg);
     if (T.knockback) pushAway(g, u, t);
+    // Дротист: отравление (не складывается — срок обновляется)
+    if (T.poisonOnHit && t.alive && !R.UNIT_TYPES[t.type].static) {
+      t.poisoned = Math.max(t.poisoned || 0, R.POISON.turns);
+      ev(g, 'poison', { unitId: t.id, turns: t.poisoned });
+      addLog(g, `☠ ${label(t)} отравлен на ${R.POISON.turns} хода`, 'dmg');
+    }
     // Ледяной маг: обычная атака замораживает (не сокращает уже наложенную заморозку)
     if (T.freezeOnHit && t.alive && !R.UNIT_TYPES[t.type].static && (t.frozen || 0) < T.freezeOnHit) {
       t.frozen = T.freezeOnHit;
@@ -629,9 +658,39 @@ function actAbility(g, side, a) {
   if (ab === 'heal') {
     const t = R.unitAt(g, x, y);
     const before = t.hp;
+    const cured = t.poisoned > 0;
     t.hp = Math.min(t.maxHp, t.hp + R.HEAL_AMOUNT);
-    ev(g, 'heal', { unitId: t.id, amount: t.hp - before, hp: t.hp });
-    addLog(g, `✚ ${label(u)} лечит ${label(t)}: +${t.hp - before} HP`, 'heal');
+    t.poisoned = 0;
+    ev(g, 'heal', { unitId: t.id, amount: t.hp - before, hp: t.hp, cured });
+    addLog(g, `✚ ${label(u)} лечит ${label(t)}: +${t.hp - before} HP${cured ? ', яд снят' : ''}`, 'heal');
+  } else if (ab === 'raise') {
+    const alive = g.units.filter((o) => o.alive && o.type === 'zombie' && o.owner === u.id).length;
+    const cells = R.DIR8.map(([dx, dy]) => [u.x + dx, u.y + dy])
+      .filter(([cx, cy]) => R.inBounds(cx, cy) && !R.isWall(g, cx, cy) && !R.unitAt(g, cx, cy) && !R.crateAt(g, cx, cy));
+    // ближе к врагу — в первую очередь
+    const dir = u.side === 'blue' ? 1 : -1; // синие наступают вверх (к меньшему y), красные — вниз
+    cells.sort((a, b) => (a[1] - b[1]) * dir);
+    const n = Math.min(R.RAISE.count, R.RAISE.max - alive, cells.length);
+    ev(g, 'raise', { unitId: u.id, count: n });
+    for (let i = 0; i < n; i++) {
+      const z = makeUnit(g, u.side[0] + 'z' + (g.seq++), 'zombie', u.side, cells[i][0], cells[i][1]);
+      z.owner = u.id;
+      z.moved = true; z.acted = true; // поднятые зомби ходят со следующего хода
+      ev(g, 'spawn', { unit: Object.assign({}, z), kind: 'zombie' });
+    }
+    u.raiseCd = R.RAISE.cooldown;
+    addLog(g, `💀 ${label(u)} поднимает мертвецов: ${n} зомби`, 'death');
+  } else if (ab === 'revive') {
+    const t = g.units.find((d) => d.side === u.side && !d.alive && d.x === x && d.y === y && R.revivable(g, d));
+    t.alive = true;
+    t.hp = Math.ceil(t.maxHp / 2);
+    t.poisoned = 0; t.frozen = 0; t.slowed = false; t.slowNext = false; t.boost = 0;
+    t.moved = true; t.acted = true; t.attacked = true; // в этот ход не действует
+    t.diedRound = null;
+    u.reviveUses = (u.reviveUses || 0) + 1;
+    ev(g, 'revive', { unitId: t.id, hp: t.hp, x: t.x, y: t.y, unit: Object.assign({}, t) });
+    addLog(g, `✨ ${label(u)} воскрешает ${label(t)} (${t.hp} HP), осталось воскрешений: ${R.REVIVE.uses - u.reviveUses}`, 'heal');
+    enterCell(g, t, null);
   } else if (ab === 'boost') {
     const t = R.unitAt(g, x, y);
     t.boost = R.BOOST_AMOUNT;
@@ -754,12 +813,15 @@ function endTurn(g, reason) {
   if (reason === 'timeout') addLog(g, `⏱ Время ${SIDE_GEN[side]} истекло — ход передан`, 'sys');
   turretsFire(g, side);
   if (checkWinner(g, side)) return;
+  poisonTick(g, side);
+  if (checkWinner(g, R.other(side))) return;
   for (const u of g.units) {
     if (u.side !== side) continue;
     u.moved = false; u.acted = false; u.attacked = false; u.slowed = false; u.boost = 0;
     // заморозка и перезарядка считаются в конце хода своей команды
     if (u.frozen > 0) { u.frozen--; if (!u.frozen && u.alive) ev(g, 'thaw', { unitId: u.id }); }
     if (u.freezeCd > 0) u.freezeCd--;
+    if (u.raiseCd > 0) u.raiseCd--;
   }
   g.activated = [];
   if (side === 'red') {

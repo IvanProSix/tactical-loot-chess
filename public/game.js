@@ -675,14 +675,22 @@
         if (!u) return;
         u.hp = e.hp;
         if (e.maxHp) u.maxHp = e.maxHp;
-        addFloat(`+${e.amount}`, u.x, u.y, '#4ade80');
+        if (e.cured) { u.poisoned = 0; addFloat('ЯД СНЯТ', u.x, u.y, '#84cc16'); }
+        else addFloat(`+${e.amount}`, u.x, u.y, '#4ade80');
         burst(cellCenter(u.x, u.y), 12, ['#4ade80', '#bbf7d0'], 1.2, -1);
         Sound.heal();
         await wait(260);
         return;
       }
       case 'death': {
-        if (u) u.alive = false;
+        if (u) { u.alive = false; u.diedRound = view.round; }
+        if (e.crumble) {
+          burst(cellCenter(e.x, e.y), 22, ['#6b7280', '#9ca3af', '#4ade80', '#374151'], 1.6, -1);
+          addFloat('прах', e.x, e.y, '#9ca3af');
+          Sound.crumble();
+          await wait(120);
+          return;
+        }
         booms.push({ x: e.x, y: e.y, t0: nowMs(), big: true });
         burst(cellCenter(e.x, e.y), 34, ['#f97316', '#facc15', '#ef4444', '#4b5563', '#111'], 3.4);
         shake = Math.max(shake, 6);
@@ -730,9 +738,50 @@
       }
       case 'spawn': {
         view.units.push(clone(e.unit));
+        if (e.kind === 'zombie') {
+          burst(cellCenter(e.unit.x, e.unit.y), 16, ['#4ade80', '#15803d', '#374151', '#a16207'], 1.8, -1);
+          await wait(160);
+          return;
+        }
         burst(cellCenter(e.unit.x, e.unit.y), 14, ['#facc15', '#9ca3af', '#fff'], 1.6);
         Sound.crate();
         await wait(250);
+        return;
+      }
+      case 'raise': {
+        if (u) {
+          addFloat('ВОССТАНЬТЕ!', u.x, u.y, '#a78bfa', true);
+          ring(cellCenter(u.x, u.y), '#7c3aed');
+        }
+        shake = Math.max(shake, 3);
+        Sound.raise();
+        await wait(350);
+        return;
+      }
+      case 'revive': {
+        let r = u;
+        if (!r) { r = clone(e.unit); view.units.push(r); }
+        Object.assign(r, e.unit);
+        addFloat('ВОСКРЕШЁН!', e.x, e.y, '#fde68a', true);
+        ring(cellCenter(e.x, e.y), '#fde68a');
+        burst(cellCenter(e.x, e.y), 24, ['#fde68a', '#fff', '#facc15'], 1.6, -1);
+        Sound.revive();
+        await wait(450);
+        return;
+      }
+      case 'poison': {
+        if (!u) return;
+        u.poisoned = e.turns;
+        addFloat('ОТРАВЛЕН!', u.x, u.y, '#84cc16');
+        burst(cellCenter(u.x, u.y), 12, ['#84cc16', '#4d7c0f', '#d9f99d'], 1.2, -1);
+        Sound.poison();
+        await wait(200);
+        return;
+      }
+      case 'poisontick': {
+        if (!u) return;
+        u.poisoned = e.left;
+        burst(cellCenter(u.x, u.y), 8, ['#84cc16', '#d9f99d'], 1, -1);
         return;
       }
       case 'boost': {
@@ -867,7 +916,7 @@
     const DUR = {
       sniper: 110, shotgun: 130, grenade: 380, punch: 150,
       bolt: 90 + d * 40, burst: 220 + d * 40, dart: 120 + d * 45, syringe: 140 + d * 45,
-      ice: 130 + d * 45, frost: 280 + d * 40,
+      ice: 130 + d * 45, frost: 280 + d * 40, poison: 130 + d * 45, skull: 220 + d * 50, claw: 170,
       knife: 160 + d * 50, bone: 200 + d * 55, shield: 180 + d * 55, wave: 260 + d * 60,
     };
     const dur = Math.round(DUR[kind] != null ? DUR[kind] : 80 + d * 45);
@@ -1212,10 +1261,13 @@
     let deb = '';
     if (u.slowed) deb += '<div class="debuff">⚠ Контузия: −1 к движению в этот ход</div>';
     if (u.slowNext) deb += '<div class="debuff">⚠ Контузия: −1 к движению в следующий ход</div>';
+    if (u.poisoned > 0) deb += `<div class="debuff" style="color:#84cc16">☠ Отравлен: −1 HP в конце своего хода, ещё ${u.poisoned} ${u.poisoned === 1 ? 'ход' : 'хода'}. Медик снимет яд</div>`;
+    if (u.raiseCd > 0) deb += `<div class="debuff" style="color:#a78bfa">💀 Подъём мертвецов перезаряжается: ${u.raiseCd} ход.</div>`;
+    if (u.type === 'paramedic') deb += `<div class="debuff" style="color:#fde68a">✨ Воскрешений осталось: ${R.REVIVE.uses - (u.reviveUses || 0)} из ${R.REVIVE.uses}</div>`;
     if (u.frozen > 0) deb += `<div class="debuff" style="color:#a5f3fc">❄ Заморожен: не может двигаться ещё ${u.frozen} ${u.frozen === 1 ? 'ход' : 'хода'}</div>`;
     if (u.freezeCd > 0) deb += `<div class="debuff" style="color:#67e8f9">❄ Ледяной залп перезаряжается: ${u.freezeCd} ${u.freezeCd === 1 ? 'ход' : 'хода'}</div>`;
     let btns = '';
-    const AB = { freeze: ['Ледяной залп', 'Выберите врага в радиусе 4 — он не сможет ходить 3 хода'], trumpet: ['Трубный рёв', 'Нажмите на слоника — враги вокруг получат урон и отлетят'], heal: ['Лечить', 'Выберите раненого союзника рядом'], boost: ['Ускорить союзника', 'Выберите союзника в радиусе 2'], turret: ['Поставить турель', 'Выберите клетку рядом'] };
+    const AB = { raise: ['Поднять мертвецов', 'Нажмите на Некроманта — рядом встанут зомби'], revive: ['Воскресить', 'Выберите надгробие союзника в радиусе 2'], freeze: ['Ледяной залп', 'Выберите врага в радиусе 4 — он не сможет ходить 3 хода'], trumpet: ['Трубный рёв', 'Нажмите на слоника — враги вокруг получат урон и отлетят'], heal: ['Лечить', 'Выберите раненого союзника рядом'], boost: ['Ускорить союзника', 'Выберите союзника в радиусе 2'], turret: ['Поставить турель', 'Выберите клетку рядом'] };
     if (own && T.ability && !view.winner) {
       const ok = R.abilityTargets(view, u).length > 0;
       const active = mode === 'ability';
@@ -1673,6 +1725,15 @@
       ctx.fillRect(px + 3 * S, py + 14 * S, 10 * S, 2 * S);
       ctx.drawImage(Sprites.get('crate'), px, snap(py + yo), C, C);
     }
+    for (const d of view.units) {
+      if (!R.revivable(view, d) || R.unitAt(view, d.x, d.y)) continue;
+      const px = fx(d.x) * C, py = fx(d.y) * C;
+      ctx.globalAlpha = 0.85;
+      ctx.drawImage(Sprites.get('grave'), px, py, C, C);
+      ctx.fillStyle = d.side === 'blue' ? 'rgba(59,130,246,0.7)' : 'rgba(239,68,68,0.7)';
+      ctx.fillRect(px + 6 * S, py + 15 * S, 4 * S, S);
+      ctx.globalAlpha = 1;
+    }
     for (const m of view.mines) {
       const px = fx(m.x) * C, py = fx(m.y) * C;
       const s = Math.max(1, Math.floor(S / 2)) * 16;
@@ -1715,6 +1776,19 @@
       ctx.globalAlpha = alpha;
       const flash = (flashes.get(u.id) || 0) > now;
       ctx.drawImage(Sprites.get(u.type, u.side, flash ? 'flash' : ''), gx, py, C, C);
+      if (u.poisoned > 0) {
+        // отравление: зеленоватый отлив и пузырьки над головой
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = '#84cc16';
+        ctx.fillRect(gx + 3 * S, py + 3 * S, 10 * S, 12 * S);
+        ctx.globalAlpha = 1;
+        for (let k = 0; k < 3; k++) {
+          const ph2 = ((now / 600) + k / 3) % 1;
+          ctx.fillStyle = k % 2 ? '#84cc16' : '#d9f99d';
+          ctx.fillRect(snap(gx + (4 + k * 4) * S), snap(py + (6 - ph2 * 7) * S), S, S);
+        }
+        ctx.globalAlpha = alpha;
+      }
       if (u.frozen > 0) {
         // ледяная корка: полупрозрачная заливка, рамка и кристаллы по углам
         ctx.globalAlpha = 0.38;
@@ -1879,7 +1953,7 @@
   // Снаряды-спрайты: [имя, вращается, размер в долях клетки]
   const PROJ_SPRITE = {
     knife: ['p_knife', true, 0.6], bone: ['p_bone', true, 0.7], syringe: ['p_syringe', false, 0.6],
-    dart: ['p_dart', false, 0.55], ice: ['p_ice', false, 0.6], punch: ['p_fist', false, 0.75], shield: ['i_shield', true, 0.6],
+    dart: ['p_dart', false, 0.55], poison: ['p_pdart', false, 0.55], skull: ['p_skull', false, 0.6, true], ice: ['p_ice', false, 0.6], punch: ['p_fist', false, 0.75], shield: ['i_shield', true, 0.6],
   };
   function drawFx(now, dt) {
     // снаряды
@@ -1891,7 +1965,7 @@
         projectiles.splice(i, 1);
         const HIT = {
           shotgun: ['#fb923c', '#facc15'], knife: ['#e5e7eb', '#ef4444'], bone: ['#f8fafc', '#d1d5db'], syringe: ['#22d3ee', '#fff'],
-          dart: ['#22d3ee', '#fff'], ice: ['#a5f3fc', '#fff'], frost: ['#a5f3fc', '#67e8f9', '#fff'], scan: ['#22d3ee', '#a5f3fc', '#fff'], punch: ['#fb923c', '#9ca3af', '#fff'], shield: ['#22d3ee', '#93c5fd'], wave: ['#4ade80', '#bbf7d0'],
+          dart: ['#22d3ee', '#fff'], poison: ['#84cc16', '#d9f99d'], skull: ['#a78bfa', '#7c3aed', '#fff'], claw: ['#4ade80', '#ef4444'], ice: ['#a5f3fc', '#fff'], frost: ['#a5f3fc', '#67e8f9', '#fff'], scan: ['#22d3ee', '#a5f3fc', '#fff'], punch: ['#fb923c', '#9ca3af', '#fff'], shield: ['#22d3ee', '#93c5fd'], wave: ['#4ade80', '#bbf7d0'],
           bolt: ['#facc15', '#fde68a', '#fff'],
         };
         burst(b, p.kind === 'punch' ? 14 : 8, HIT[p.kind] || ['#fff', TEAM_COL[p.side] || '#fff'], 1.6);
@@ -1905,14 +1979,29 @@
         ctx.fillRect(snap(hx - S * 1.5), snap(hy - S * 1.5), 3 * S, 3 * S);
       } else if (PROJ_SPRITE[p.kind]) {
         // предметы-снаряды: нож и кость вращаются, шприц/дротик/кулак летят остриём вперёд
-        const [name, spin, scale] = PROJ_SPRITE[p.kind];
-        const ang = spin ? t * Math.PI * 6 : Math.atan2(b.y - a.y, b.x - a.x);
+        const [name, spin, scale, upright] = PROJ_SPRITE[p.kind];
+        const ang = upright ? Math.sin(t * Math.PI * 4) * 0.25 : spin ? t * Math.PI * 6 : Math.atan2(b.y - a.y, b.x - a.x);
+        if (p.kind === 'poison' || p.kind === 'skull') {
+          // шлейф: зелёные капли яда / фиолетовая дымка за черепом
+          ctx.fillStyle = p.kind === 'poison' ? '#84cc16' : '#7c3aed';
+          for (let k = 1; k <= 3; k++) {
+            const tk = Math.max(0, t - k * 0.08);
+            ctx.fillRect(snap(a.x + (b.x - a.x) * tk - S / 2), snap(a.y + (b.y - a.y) * tk - S / 2 + (p.kind === 'poison' ? k * S : 0)), S, S);
+          }
+        }
         const size = C * scale;
         ctx.save();
         ctx.translate(snap(hx), snap(hy));
         ctx.rotate(ang);
         ctx.drawImage(Sprites.get(name), -size / 2, -size / 2, size, size);
         ctx.restore();
+      } else if (p.kind === 'claw') {
+        // зомби: три когтистых царапины поверх цели
+        const n = Math.min(3, Math.floor(t * 4));
+        ctx.fillStyle = '#d9f99d';
+        for (let k = 0; k < n; k++) {
+          for (let j = 0; j < 5; j++) ctx.fillRect(snap(b.x + (j - 2 - k * 1.5 + 1.5) * S * 1.5), snap(b.y + (j - 2) * S * 1.5), S, S);
+        }
       } else if (p.kind === 'frost') {
         // ледяной луч с искрами-снежинками
         const tx = a.x + (b.x - a.x) * Math.max(0, t - 0.5), ty = a.y + (b.y - a.y) * Math.max(0, t - 0.5);

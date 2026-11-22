@@ -39,6 +39,14 @@
       desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту. Удар в спину (с любой из 3 клеток позади цели) убивает мгновенно, а Командиру наносит двойной урон (не больше 6). Спасает только Энергощит.' },
     tracker: { name: 'Следопыт', hp: 5, move: 3, dmg: 2, range: 2, minRange: 1, cost: 2, price: 400, detect: 2,
       desc: 'Чует скрытых врагов: Диверсанты в радиусе 2 клеток от него становятся видны всем. Удар в спину на нём не срабатывает.' },
+    necromancer: { name: 'Некромант', hp: 5, move: 2, dmg: 1, range: 2, minRange: 1, cost: 3, price: 600, ability: 'raise',
+      desc: 'Способность (Действие): поднимает до 3 зомби на соседних клетках (перезарядка 5 ходов, не больше 3 зомби одновременно). Если Некромант погибает — его зомби рассыпаются.' },
+    zombie: { name: 'Зомби', hp: 2, move: 2, dmg: 1, range: 1, minRange: 1, cost: 0, price: 0, noShop: true, summon: true,
+      desc: 'Поднят Некромантом. Управляется как обычный юнит. Рассыпается, если его Некромант погибает. Воскресить нельзя.' },
+    paramedic: { name: 'Парамедик', hp: 5, move: 3, dmg: 1, range: 1, minRange: 1, cost: 3, price: 550, ability: 'revive',
+      desc: 'Способность (Действие): воскрешает союзника, погибшего не больше 3 раундов назад, если его надгробие в радиусе 2. Воскрешённый встаёт с половиной HP и ходит со следующего хода. Только 2 раза за игру. Командира воскресить нельзя.' },
+    poisoner: { name: 'Дротист', hp: 4, move: 3, dmg: 1, range: 3, minRange: 1, cost: 2, price: 450, poisonOnHit: true,
+      desc: 'Отравленный дротик: цель отравлена на 2 хода — в конце каждого своего хода теряет 1 HP (щит не спасает). Повторное попадание обновляет срок. Яд снимают Медик и Нано-аптечка.' },
     // Особый юнит: в магазине его нет, выдаёт только администратор
     elephant: { name: 'Зелёный слоник', hp: 8, move: 3, dmg: 2, range: 2, minRange: 1, cost: 3, price: 0, special: true, ability: 'trumpet', knockback: true, trample: true,
       desc: 'Особый юнит — выдаёт только администратор. ТАРАН: ходит сквозь стены, ломая их, и сквозь врагов — враг на пути получает урон и отлетает (если некуда — +1 урона, и слоник останавливается). Атака отбрасывает цель. Способность: трубный рёв — враги вокруг получают 1 урона и отлетают.' },
@@ -52,8 +60,19 @@
     commander: 'bolt', assault: 'burst', sniper: 'sniper', scout: 'dart', medic: 'syringe', grenadier: 'grenade',
     heavy: 'punch', engineer: 'laser', saboteur: 'knife', drone: 'laser', shieldbearer: 'shield', signaller: 'wave',
     elephant: 'bone', turret: 'laser', tracker: 'scan', icemage: 'ice',
+    necromancer: 'skull', zombie: 'claw', paramedic: 'syringe', poisoner: 'poison',
   };
   const FREEZE = { range: 4, turns: 3, cooldown: 3 };
+  const RAISE = { count: 3, max: 3, cooldown: 5 }; // Некромант
+  const REVIVE = { uses: 2, rounds: 3, radius: 2 }; // Парамедик
+  const POISON = { turns: 2, dmg: 1 }; // Дротист
+  // Можно ли воскресить павшего юнита (для Парамедика и надгробий)
+  function revivable(g, d) {
+    if (!d || d.alive || d.diedRound == null) return false;
+    const T = UNIT_TYPES[d.type];
+    if (!T || d.type === 'commander' || T.static || T.summon) return false;
+    return g.round - d.diedRound <= REVIVE.rounds;
+  }
   const BASIC_UNITS = ['assault', 'sniper', 'scout'];
   const SHOP_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].price > 0);
   const SPECIAL_UNITS = Object.keys(UNIT_TYPES).filter((k) => UNIT_TYPES[k].special);
@@ -388,8 +407,21 @@
     const ab = UNIT_TYPES[u.type].ability;
     if (!ab || !canAct(g, u)) return [];
     if (ab === 'heal') {
+      // лечит раненых и снимает яд (даже при полном HP)
       return g.units.filter((o) => o.alive && o !== u && o.side === u.side && !UNIT_TYPES[o.type].static &&
-        cheb(o, u) <= 1 && o.hp < o.maxHp).map((o) => ({ x: o.x, y: o.y, id: o.id }));
+        cheb(o, u) <= 1 && (o.hp < o.maxHp || o.poisoned > 0)).map((o) => ({ x: o.x, y: o.y, id: o.id }));
+    }
+    if (ab === 'raise') {
+      if (u.raiseCd > 0) return [];
+      const alive = g.units.filter((o) => o.alive && o.type === 'zombie' && o.owner === u.id).length;
+      if (alive >= RAISE.max) return [];
+      const free = DIR8.some(([dx, dy]) => { const x = u.x + dx, y = u.y + dy; return inBounds(x, y) && !isWall(g, x, y) && !unitAt(g, x, y) && !crateAt(g, x, y); });
+      return free ? [{ x: u.x, y: u.y, id: u.id }] : [];
+    }
+    if (ab === 'revive') {
+      if ((u.reviveUses || 0) >= REVIVE.uses) return [];
+      return g.units.filter((d) => d.side === u.side && revivable(g, d) && cheb(d, u) <= REVIVE.radius &&
+        !unitAt(g, d.x, d.y) && !isWall(g, d.x, d.y)).map((d) => ({ x: d.x, y: d.y, id: d.id }));
     }
     if (ab === 'boost') {
       return g.units.filter((o) => o.alive && o !== u && o.side === u.side && !UNIT_TYPES[o.type].static &&
@@ -444,7 +476,7 @@
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS,
     BUFF_CAP, rammable, unitDmg, unitRange, isBehind, sniperLocked,
     canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
-    SHOT_KIND, FREEZE, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
+    SHOT_KIND, FREEZE, RAISE, REVIVE, POISON, revivable, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
     squadError, squadCost, isHidden, abilityTargets,
     jetpackCells, mineCells, hasUsefulMove, hasUsefulAct, shouldAutoEnd,
   };
