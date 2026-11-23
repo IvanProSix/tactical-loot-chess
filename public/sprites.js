@@ -386,19 +386,19 @@ const Sprites = (() => {
     ],
     skeleton: [
       '................',
-      '.....kkkkkk.....',
-      '....kwwwwwwk....',
-      '...kwwwwwwwwk...',
-      '...kwkkwwkkwk...',
-      '...kwkekwkekk...',
-      '...kwwwkkwwwk...',
-      '....kwkwkwwk....',
-      '.....kkkkkk.....',
-      '...kk.kwwk.kk...',
-      '..kwk.TTTT.kwk..',
-      '..kwkkwkkwkkwk..',
-      '...k.kwwwwk.k...',
-      '.....kwkkwk.....',
+      '....kkkkkk....k.',
+      '...kwwwwwwk..kpk',
+      '..kwwwwwwwpk.kpk',
+      '..kwkkwwkkpk.kpk',
+      '..kwkLkwkLpk.kpk',
+      '..kpwwkkwwpk.kpk',
+      '...kkwkwkwk..kpk',
+      '..kTTkkkkTTk.kpk',
+      '.kTtTkwwkTtTkkYk',
+      '.kwkkpwkkwpkkYYk',
+      '.kwk.kpwwpk.kwk.',
+      '..kk.kkwwkk..kBk',
+      '.....kwkkwk...k.',
       '....kwk..kwk....',
       '....kkk..kkk....',
     ],
@@ -406,54 +406,54 @@ const Sprites = (() => {
       '................',
       '.....kkkkkk.....',
       '....kEEEEEEk....',
-      '...kEnEEEEEEk...',
+      '...kEnnEEEEEk...',
+      '..kkEEEEEEEEkk..',
       '...kkkkkkkkkk...',
-      '....kyykkyyk....',
+      '....kvvkkvvk....',
       '....kssssssk....',
       '.....kssssk.....',
       '...kkTTTTTTkk...',
-      '..kTTyTTTTyTTk..',
-      '..kTTTTTTTTTTk..',
-      '..kskTTTTTTkskk.',
-      '...kkGGGGGGkkpk.',
-      '....kTTkkTTk.kpk',
-      '....kGGk.kGGk.kk',
-      '....kkkk.kkkk...',
+      '..kTykyTTykyTk..',
+      '..kTTTTTTTTTskk.',
+      '..kskTTTTTTkkpk.',
+      '...kGGGGGGGk.kpk',
+      '....kGGkkGGkkVVk',
+      '....kkkk.kkkkkkk',
     ],
     defender: [
       '................',
       '.....kkkkkk.....',
-      '....kTTTTTTk....',
-      '...kTLLTTTTTk...',
-      '...kTTkkkkTTk...',
-      '...kkcccccckk...',
-      '....kssssssk....',
-      '.....kssssk.....',
-      '..kkkTTTTTTkkk..',
-      '.kpppkTTTTkpppk.',
-      '.kpLpkTTTTkpLpk.',
-      '.kpppkTTTTkpppk.',
-      '..kkkkTTTTkkkk..',
-      '....kTTkkTTk....',
-      '....kGGk.kGGk...',
-      '....kkkk.kkkk...',
+      '....kTLLTTTk....',
+      '...kTLTTTTTTk...',
+      '...kkkkkkkkkk...',
+      '...kpvvvvvvpk...',
+      '.kkkkkkkkkkTTk..',
+      '.kwppTTppgkTTTk.',
+      '.kpTTLLTTgktTTk.',
+      '.kpTTLLTTgktTTk.',
+      '.kpppTTppgkkssk.',
+      '.kpgyppygGkGGk..',
+      '..kpppppGk.GGk..',
+      '...kpppGk.kGGk..',
+      '....kGGk..kkkk..',
+      '.....kk.........',
     ],
     barrier: [
       '................',
-      '................',
-      '.kkkkkkkkkkkkkk.',
-      '.kTTTTTTTTTTTTk.',
-      '.kpppppppppppgk.',
-      '.kpgggpgggpggGk.',
-      '.kkkkkkkkkkkkkk.',
-      '.kgpppgppppgpGk.',
-      '.kppgggpgggppGk.',
-      '.kkkkkkkkkkkkkk.',
-      '.kpppppgpppppGk.',
-      '.kpgggpppgggpGk.',
-      '.kGGGGGGGGGGGGk.',
-      '.kTTTTTTTTTTTTk.',
-      '.kkkkkkkkkkkkkk.',
+      '.kk..........kk.',
+      'kLTk........kLTk',
+      'kkkkLLLLLLLLkkkk',
+      'kpgkLTTTLTTTkpGk',
+      'kpgkTLTTTLTTkpGk',
+      'kygkTTLTTTLTkyGk',
+      'kpgkTTTLTTTLkpGk',
+      'kpgkLTTTLTTTkpGk',
+      'kpgkTLTTTLTTkpGk',
+      'kygkTTLTTTLTkyGk',
+      'kpgkTTTLTTTLkpGk',
+      'kpgkttttttttkpGk',
+      'kGGkkkkkkkkkkGGk',
+      'kkkk........kkkk',
       '................',
     ],
     turret: [
@@ -979,7 +979,22 @@ const Sprites = (() => {
     return out;
   }
 
-  function bake(rows, team, mode) {
+  // Объём: пиксель у нижнего/правого контура чуть темнее, у верхнего/левого — чуть светлее
+  const NO_SHADE = new Set(['icemage']); // авторский рисунок — без автотеней
+  function shade(hex, f) {
+    const n = parseInt(hex.slice(1), 16);
+    const ch = (v) => Math.round(f < 0 ? v * (1 + f) : v + (255 - v) * f);
+    return '#' + [n >> 16, (n >> 8) & 255, n & 255].map((v) => ch(v).toString(16).padStart(2, '0')).join('');
+  }
+  function edge(rows, px, py) {
+    const at = (x, y) => (rows[y] && rows[y][x]) || '.';
+    const out = (c) => c === 'k' || c === '.';
+    if (out(at(px + 1, py)) || out(at(px, py + 1))) return -0.22;
+    if (out(at(px - 1, py)) || out(at(px, py - 1))) return 0.22;
+    return 0;
+  }
+
+  function bake(rows, team, mode, flat) {
     const c = document.createElement('canvas');
     c.width = 16; c.height = 16;
     const x = c.getContext('2d');
@@ -989,6 +1004,7 @@ const Sprites = (() => {
         const ch = rows[py][px];
         if (ch === '.') continue;
         let col = tp[ch] || PAL[ch] || '#ff00ff';
+        if (!flat && ch !== 'k' && col[0] === '#' && col.length === 7) { const e = edge(rows, px, py); if (e) col = shade(col, e); }
         if (mode === 'flash') col = ch === 'k' ? '#ffffff' : '#ffffff';
         if (mode === 'ghost') col = ch === 'k' ? '#0b1220' : col;
         x.fillStyle = col;
@@ -1003,7 +1019,7 @@ const Sprites = (() => {
       const rows = norm(raw, name);
       const teams = UNIT_TYPES.includes(name) ? ['blue', 'red', 'neutral'] : ['neutral'];
       for (const t of teams) {
-        cache.set(`${name}|${t}|`, bake(rows, t, ''));
+        cache.set(`${name}|${t}|`, bake(rows, t, '', NO_SHADE.has(name)));
         cache.set(`${name}|${t}|flash`, bake(rows, t, 'flash'));
       }
     }
