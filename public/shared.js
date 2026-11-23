@@ -12,56 +12,100 @@
   const TURN_SECONDS = 60;
 
   // cost — стоимость в очках отряда; price — цена открытия в магазине (0 — доступен сразу)
+  // role — роль юнита (показывается значком): dmg урон, tank танк, support поддержка, scout разведка,
+  //        control контроль, summon призыв, special специалист
   const UNIT_TYPES = {
-    commander: { name: 'Командир', hp: 10, move: 2, dmg: 2, range: 2, minRange: 1, cost: 0, price: 0,
+    commander: { name: 'Командир', role: 'special', hp: 10, move: 2, dmg: 2, range: 2, minRange: 1, cost: 0, price: 0,
       desc: 'Лидер отряда. Если Командир погибает — команда проигрывает.' },
-    assault: { name: 'Штурмовик', hp: 6, move: 3, dmg: 2, range: 2, minRange: 1, cost: 2, price: 0,
+    assault: { name: 'Штурмовик', role: 'dmg', hp: 6, move: 3, dmg: 2, range: 2, minRange: 1, cost: 2, price: 0,
       desc: 'Крепкий боец передовой линии.' },
-    sniper: { name: 'Снайпер', hp: 4, move: 2, dmg: 3, range: 4, minRange: 2, cost: 3, price: 0,
+    sniper: { name: 'Снайпер', role: 'dmg', hp: 4, move: 2, dmg: 3, range: 4, minRange: 2, cost: 3, price: 0,
       desc: 'Не стреляет вплотную (1 клетка). Не может двигаться и стрелять в один ход.' },
-    scout: { name: 'Разведчик', hp: 5, move: 4, dmg: 1, range: 1, minRange: 1, cost: 2, price: 0,
+    scout: { name: 'Разведчик', role: 'scout', hp: 5, move: 4, dmg: 2, range: 1, minRange: 1, cost: 2, price: 0,
       desc: 'Самый быстрый юнит. Идеален для сбора ящиков с лутом.' },
-    medic: { name: 'Медик', hp: 5, move: 2, dmg: 1, range: 1, minRange: 1, cost: 2, price: 300, ability: 'heal',
-      desc: 'Способность (Действие): лечит союзника рядом на 2 HP.' },
-    drone: { name: 'Дрон', hp: 2, move: 4, dmg: 1, range: 2, minRange: 1, cost: 2, price: 300, fly: true,
-      desc: 'Летает над стенами (но не может на них остановиться). Хрупкий.' },
-    shieldbearer: { name: 'Щитоносец', hp: 7, move: 2, dmg: 1, range: 1, minRange: 1, cost: 2, price: 350, aura: true,
+    skeleton: { name: 'Скелет', role: 'dmg', hp: 3, move: 3, dmg: 1, range: 1, minRange: 1, cost: 1, price: 150,
+      desc: 'Дешёвый боец за 1 очко: им удобно добить бюджет отряда, закрыть клетку или отвлечь врага.' },
+    medic: { name: 'Медик', role: 'support', hp: 5, move: 3, dmg: 1, range: 1, minRange: 1, cost: 2, price: 300, ability: 'heal',
+      desc: 'Способность (Действие): лечит союзника рядом на 2 HP и снимает 1 стак яда.' },
+    drone: { name: 'Дрон', role: 'scout', hp: 3, move: 4, dmg: 1, range: 2, minRange: 1, cost: 2, price: 300, fly: true, ability: 'detonate',
+      desc: 'Летает над стенами (но не может на них остановиться). Способность (Действие): самоподрыв — 3 урона всем врагам вокруг, дрон погибает.' },
+    shieldbearer: { name: 'Щитоносец', role: 'tank', hp: 7, move: 2, dmg: 2, range: 1, minRange: 1, cost: 2, price: 350, aura: true,
       desc: 'Союзники вокруг него (8 клеток) получают на 1 урона меньше (но не меньше 1).' },
-    signaller: { name: 'Связист', hp: 4, move: 2, dmg: 1, range: 2, minRange: 1, cost: 2, price: 350, ability: 'boost',
+    signaller: { name: 'Связист', role: 'support', hp: 4, move: 2, dmg: 1, range: 2, minRange: 1, cost: 2, price: 350, ability: 'boost',
       desc: 'Способность (Действие): союзник в радиусе 2, ещё не ходивший, получает +2 к движению в этот ход.' },
-    grenadier: { name: 'Гренадёр', hp: 5, move: 2, dmg: 2, range: 3, minRange: 2, cost: 3, price: 500, lob: true,
-      desc: 'Граната летит навесом — стены не мешают. +1 урона врагам рядом с целью.' },
-    heavy: { name: 'Тяжёлый пехотинец', hp: 9, move: 1, dmg: 2, range: 1, minRange: 1, cost: 3, price: 500, knockback: true,
-      desc: 'Очень живучий, но медленный. Удар отбрасывает цель на клетку.' },
-    engineer: { name: 'Инженер', hp: 4, move: 2, dmg: 1, range: 2, minRange: 1, cost: 3, price: 600, ability: 'turret',
+    defender: { name: 'Защитник', role: 'tank', hp: 6, move: 2, dmg: 1, range: 1, minRange: 1, cost: 2, price: 400, ability: 'barrier',
+      desc: 'Способность (Действие): ставит рядом Преграду (4 HP) — сквозь неё нельзя ни пройти, ни выстрелить (гранаты летят навесом). Не больше 2 преград, перезарядка 2 хода.' },
+    grenadier: { name: 'Гренадёр', role: 'dmg', hp: 5, move: 2, dmg: 2, range: 3, minRange: 2, cost: 3, price: 500, lob: true,
+      desc: 'Граната летит навесом — стены и преграды не мешают. +1 урона врагам рядом с целью (своих не задевает).' },
+    heavy: { name: 'Тяжёлый пехотинец', role: 'tank', hp: 9, move: 1, dmg: 3, range: 1, minRange: 1, cost: 3, price: 500, knockback: true,
+      desc: 'Очень живучий, но медленный. Мощный удар отбрасывает цель на клетку.' },
+    engineer: { name: 'Инженер', role: 'support', hp: 4, move: 2, dmg: 2, range: 2, minRange: 1, cost: 3, price: 600, ability: 'turret',
       desc: 'Способность (Действие): ставит турель рядом (одна на инженера). Турель сама стреляет в конце вашего хода.' },
-    saboteur: { name: 'Диверсант', hp: 4, move: 3, dmg: 3, range: 1, minRange: 1, cost: 3, price: 600, stealth: true, backstab: true,
+    sapper: { name: 'Сапёр', role: 'control', hp: 5, move: 3, dmg: 2, range: 2, minRange: 1, cost: 2, price: 450, ability: 'mines', mineSight: 2,
+      desc: 'Видит вражеские мины в радиусе 2 (их видит вся команда) и обезвреживает их, наступив. Способность (Действие): ставит 2 мины рядом, перезарядка 2 хода. Мины из ящиков у него — с двойным запасом.' },
+    saboteur: { name: 'Диверсант', role: 'dmg', hp: 4, move: 3, dmg: 3, range: 1, minRange: 1, cost: 3, price: 600, stealth: true, backstab: true,
       desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту. Удар в спину (с любой из 3 клеток позади цели) убивает мгновенно, а Командиру наносит двойной урон (не больше 6). Спасает только Энергощит.' },
-    tracker: { name: 'Следопыт', hp: 5, move: 3, dmg: 2, range: 2, minRange: 1, cost: 2, price: 400, detect: 2,
+    tracker: { name: 'Следопыт', role: 'scout', hp: 5, move: 3, dmg: 2, range: 2, minRange: 1, cost: 2, price: 400, detect: 2,
       desc: 'Чует скрытых врагов: Диверсанты в радиусе 2 клеток от него становятся видны всем. Удар в спину на нём не срабатывает.' },
-    necromancer: { name: 'Некромант', hp: 5, move: 2, dmg: 1, range: 2, minRange: 1, cost: 3, price: 600, ability: 'raise',
-      desc: 'Способность (Действие): поднимает до 3 зомби на соседних клетках (перезарядка 5 ходов, не больше 3 зомби одновременно). Если Некромант погибает — его зомби рассыпаются.' },
-    zombie: { name: 'Зомби', hp: 2, move: 2, dmg: 1, range: 1, minRange: 1, cost: 0, price: 0, noShop: true, summon: true, auto: true,
+    necromancer: { name: 'Некромант', role: 'summon', hp: 5, move: 2, dmg: 2, range: 2, minRange: 1, cost: 3, price: 600, ability: 'raise', maxInSquad: 1,
+      desc: 'Способность (Действие): поднимает зомби на соседних клетках (перезарядка 5 ходов; у команды не больше 3 зомби одновременно). Если Некромант погибает — его зомби рассыпаются. В отряде — только один.' },
+    zombie: { name: 'Зомби', role: 'summon', hp: 2, move: 2, dmg: 1, range: 1, minRange: 1, cost: 0, price: 0, noShop: true, summon: true, auto: true,
       desc: 'Поднят Некромантом. Ходит сам: в конце вашего хода идёт к ближайшему видимому врагу и бьёт, если оказался рядом. Не тратит ваши активации. Живёт 3 хода, ящики не подбирает, рассыпается вместе с Некромантом.' },
-    paramedic: { name: 'Парамедик', hp: 5, move: 3, dmg: 1, range: 1, minRange: 1, cost: 3, price: 550, ability: 'revive',
+    paramedic: { name: 'Парамедик', role: 'support', hp: 5, move: 3, dmg: 1, range: 1, minRange: 1, cost: 3, price: 550, ability: 'revive',
       desc: 'Способность (Действие): воскрешает союзника, погибшего не больше 3 раундов назад, если его надгробие в радиусе 2. Воскрешённый встаёт с половиной HP и ходит со следующего хода. Только 2 раза за игру. Командира воскресить нельзя.' },
-    poisoner: { name: 'Дротист', hp: 4, move: 3, dmg: 1, range: 3, minRange: 1, cost: 3, price: 450, poisonOnHit: true,
-      desc: 'Отравленный дротик: +1 стак яда (максимум 3) и срок 2 хода. В конце своего хода цель теряет по 1 HP за каждый стак (щит не спасает). Командир устойчив: не больше 1 урона от яда за ход. Яд снимают Медик и Нано-аптечка.' },
-    // Особый юнит: в магазине его нет, выдаёт только администратор
-    elephant: { name: 'Зелёный слоник', hp: 8, move: 3, dmg: 2, range: 2, minRange: 1, cost: 3, price: 0, special: true, ability: 'trumpet', knockback: true, trample: true,
+    poisoner: { name: 'Дротист', role: 'control', hp: 4, move: 3, dmg: 1, range: 3, minRange: 1, cost: 3, price: 450, poisonOnHit: true,
+      desc: 'Отравленный дротик: +1 стак яда (максимум 3) и срок 2 хода. В конце своего хода цель теряет по 1 HP за каждый стак (щит не спасает). Командир устойчив: не больше 1 урона от яда за ход. Каждое лечение Медика снимает 1 стак.' },
+    // Особые юниты: в магазине их нет, выдаёт только администратор
+    elephant: { name: 'Зелёный слоник', role: 'special', hp: 8, move: 3, dmg: 2, range: 2, minRange: 1, cost: 3, price: 0, special: true, ability: 'trumpet', knockback: true, trample: true,
       desc: 'Особый юнит — выдаёт только администратор. ТАРАН: ходит сквозь стены, ломая их, и сквозь врагов — враг на пути получает урон и отлетает (если некуда — +1 урона, и слоник останавливается). Атака отбрасывает цель. Способность: трубный рёв — враги вокруг получают 1 урона и отлетают.' },
-    icemage: { name: 'Ледяной маг', hp: 6, move: 2, dmg: 1, range: 3, minRange: 1, cost: 3, price: 0, special: true, ability: 'freeze', freezeOnHit: 1,
+    icemage: { name: 'Ледяной маг', role: 'special', hp: 6, move: 2, dmg: 1, range: 3, minRange: 1, cost: 3, price: 0, special: true, ability: 'freeze', freezeOnHit: 1,
       desc: 'Особый юнит — выдаёт только администратор. Способность (Действие): ледяной залп — враг в радиусе 4 на линии огня получает 1 урона и не может двигаться 3 своих хода (стрелять может). Перезарядка — 3 хода. Обычная атака замораживает на 1 ход.' },
-    turret: { name: 'Турель', hp: 2, move: 0, dmg: 1, range: 3, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
+    turret: { name: 'Турель', role: 'summon', hp: 2, move: 0, dmg: 1, range: 3, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по самому раненому врагу в радиусе 3.' },
+    barrier: { name: 'Преграда', role: 'summon', hp: 4, move: 0, dmg: 0, range: 0, minRange: 1, cost: 0, price: 0, static: true, noShop: true, blocksLOS: true,
+      desc: 'Поставлена Защитником. Сквозь неё нельзя пройти и выстрелить (кроме гранат). Её можно разрушить: 4 HP.' },
   };
+  const ROLES = {
+    dmg: { name: 'Урон', icon: '⚔', color: '#f87171' },
+    tank: { name: 'Танк', icon: '🛡', color: '#60a5fa' },
+    support: { name: 'Поддержка', icon: '✚', color: '#4ade80' },
+    scout: { name: 'Разведка', icon: '👁', color: '#22d3ee' },
+    control: { name: 'Контроль', icon: '⌛', color: '#c084fc' },
+    summon: { name: 'Призыв', icon: '💀', color: '#a78bfa' },
+    special: { name: 'Особый', icon: '★', color: '#facc15' },
+  };
+  const SQUAD_SAME_MAX = 2; // одинаковых юнитов в отряде — не больше 2 (некоторых — 1)
+
+  // ---- Кампания против ИИ: 10 уровней + секретный 11-й. Игрок воюет своим отрядом.
+  // enemy — отряд ИИ (без Командира), cmdHp — здоровье вражеского Командира, ai — сложность,
+  // mines — заранее спрятанные мины ИИ, reward — монеты за первое прохождение (с аккаунтом)
+  const CAMPAIGN = [
+    { name: 'Учебная тревога', desc: 'Пара разведчиков проверяет оборону. Разомнись.', enemy: ['scout', 'scout'], cmdHp: 6, ai: 'easy', reward: 100 },
+    { name: 'Первая кровь', desc: 'Небольшой отряд с дешёвым скелетом в прикрытии.', enemy: ['assault', 'scout', 'skeleton'], cmdHp: 8, ai: 'easy', reward: 200 },
+    { name: 'Снайперская аллея', desc: 'Два снайпера держат дальнюю линию. Используй укрытия.', enemy: ['sniper', 'sniper', 'assault'], cmdHp: 10, ai: 'medium', reward: 300 },
+    { name: 'Мёртвые встают', desc: 'Некромант и его скелеты. Убей Некроманта — зомби рассыплются.', enemy: ['necromancer', 'skeleton', 'skeleton', 'poisoner', 'grenadier'], cmdHp: 12, ai: 'hard', reward: 400 },
+    { name: 'Полевой госпиталь', desc: 'Медик лечит, Щитоносец прикрывает. Бей лекаря первым.', enemy: ['medic', 'assault', 'assault', 'shieldbearer'], cmdHp: 10, ai: 'medium', reward: 500 },
+    { name: 'Тени', desc: 'Диверсанты невидимы, пока не ударят. Следи за тылом.', enemy: ['saboteur', 'saboteur', 'tracker', 'poisoner', 'skeleton'], cmdHp: 12, ai: 'hard', reward: 600 },
+    { name: 'Крепость', desc: 'Защитники строят преграды, турели простреливают подходы. Гранаты летят через преграды.', enemy: ['defender', 'defender', 'engineer', 'sniper', 'heavy'], cmdHp: 12, ai: 'hard', reward: 700 },
+    { name: 'Яд и сталь', desc: 'Дротисты травят, тяжёлая пехота давит. Береги Медика.', enemy: ['poisoner', 'poisoner', 'medic', 'grenadier', 'heavy'], cmdHp: 12, ai: 'hard', reward: 800 },
+    { name: 'Минное поле', desc: 'В центре спрятаны мины, Сапёр ставит новые. Свой Сапёр их увидит.', enemy: ['sapper', 'grenadier', 'assault', 'sniper'], cmdHp: 12, ai: 'hard', reward: 900,
+      mines: [[1, 3], [4, 3], [6, 4], [3, 4], [2, 4]] },
+    { name: 'Генерал', desc: 'Элитный отряд и закалённый Командир. Финал основной кампании.', enemy: ['heavy', 'sniper', 'sniper', 'grenadier', 'paramedic'], cmdHp: 14, ai: 'hard', reward: 1000 },
+    { name: 'Враги админа', desc: 'Секретный уровень. Против тебя — личная гвардия админа: Зелёный слоник и Ледяной маг.', secret: true,
+      enemy: ['elephant', 'icemage', 'necromancer', 'heavy', 'sniper'], cmdHp: 15, ai: 'hard', reward: 2000 },
+  ];
+  const AI_LEVELS = { easy: 'Лёгкий', medium: 'Средний', hard: 'Сложный' };
   // Вид снаряда у каждого юнита (влияет только на анимацию и звук)
   const SHOT_KIND = {
     commander: 'bolt', assault: 'burst', sniper: 'sniper', scout: 'dart', medic: 'syringe', grenadier: 'grenade',
     heavy: 'punch', engineer: 'laser', saboteur: 'knife', drone: 'laser', shieldbearer: 'shield', signaller: 'wave',
     elephant: 'bone', turret: 'laser', tracker: 'scan', icemage: 'ice',
     necromancer: 'skull', zombie: 'claw', paramedic: 'syringe', poisoner: 'poison',
+    skeleton: 'bone', defender: 'shield', sapper: 'laser', barrier: 'laser',
   };
+  const BARRIER = { max: 2, cooldown: 2 }; // Защитник
+  const MINES = { count: 2, cooldown: 2, dmg: 3 }; // Сапёр
+  const DETONATE = { dmg: 3 }; // Дрон
   const FREEZE = { range: 4, turns: 3, cooldown: 3 };
   const RAISE = { count: 3, max: 3, cooldown: 5, life: 3 }; // Некромант; зомби живут 3 хода
   const REVIVE = { uses: 2, rounds: 3, radius: 2 }; // Парамедик
@@ -91,11 +135,15 @@
     if (squad.length < 1) return 'Нужен хотя бы один боец кроме Командира';
     if (squad.length > SQUAD_MAX) return `Не больше ${SQUAD_MAX} бойцов`;
     let cost = 0;
+    const count = {};
     for (const t of squad) {
       const T = UNIT_TYPES[t];
       if (!T || T.noShop || t === 'commander') return 'Неизвестный юнит';
       if (!BASIC_UNITS.includes(t) && !(unlocked || []).includes(t)) return `${T.name} ещё не открыт`;
       cost += T.cost;
+      count[t] = (count[t] || 0) + 1;
+      const lim = T.maxInSquad || SQUAD_SAME_MAX;
+      if (count[t] > lim) return lim === 1 ? `${T.name} — не больше одного в отряде` : `${T.name} — не больше ${lim} в отряде`;
     }
     if (cost > SQUAD_BUDGET) return `Превышен бюджет: ${cost}/${SQUAD_BUDGET}`;
     return null;
@@ -232,7 +280,11 @@
     return pts;
   }
   function lineClear(g, pts) {
-    for (let i = 1; i < pts.length - 1; i++) if (isWall(g, pts[i][0], pts[i][1])) return false;
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (isWall(g, pts[i][0], pts[i][1])) return false;
+      const b = unitAt(g, pts[i][0], pts[i][1]);
+      if (b && UNIT_TYPES[b.type].blocksLOS) return false; // Преграда Защитника
+    }
     return true;
   }
   // Симметричная проверка линии видимости (стены блокируют, юниты — нет)
@@ -270,7 +322,13 @@
   const sniperLocked = (u) => u.type === 'sniper' && !buff(u, 'steady');
   function moveRange(u) {
     if (UNIT_TYPES[u.type].static) return 0;
-    return Math.max(1, UNIT_TYPES[u.type].move + buff(u, 'move') - (u.slowed ? 1 : 0) + (u.boost || 0));
+    const r = UNIT_TYPES[u.type].move + buff(u, 'move') - (u.slowed ? 1 : 0) + (u.boost || 0);
+    // после прыжка на джетпаке можно пройти ещё, но на 1 клетку меньше
+    return u.jetted ? Math.max(0, r - 1) : Math.max(1, r);
+  }
+  // Прыжок на джетпаке: только до обычного движения и один раз за ход
+  function canJet(g, u) {
+    return canMove(g, u) && !u.jetted && !!u.item && u.item.type === 'jetpack';
   }
   // «Спина» юнита — сторона его базы: у Синих снизу (y больше), у Красных сверху
   function isBehind(attacker, target) {
@@ -409,16 +467,43 @@
   // Клетки/цели способностей: heal — раненый союзник рядом, turret — свободная клетка рядом, boost — союзник в радиусе 2
   function abilityTargets(g, u) {
     const ab = UNIT_TYPES[u.type].ability;
+    if (ab === 'mines') {
+      // Сапёр ставит 2 мины: первая тратит Действие, вторую можно поставить сразу следом
+      const second = u.minesLeft > 0 && u.side === g.turn && u.alive;
+      if (!second && (!canAct(g, u) || u.minesCd > 0)) return [];
+      const out = [];
+      for (const [dx, dy] of DIR8) {
+        const x = u.x + dx, y = u.y + dy;
+        if (!inBounds(x, y) || isWall(g, x, y) || unitAt(g, x, y) || crateAt(g, x, y)) continue;
+        if (g.mines.some((m) => m.x === x && m.y === y)) continue;
+        out.push({ x, y });
+      }
+      return out;
+    }
     if (!ab || !canAct(g, u)) return [];
     if (ab === 'heal') {
       // лечит раненых и снимает яд (даже при полном HP)
       return g.units.filter((o) => o.alive && o !== u && o.side === u.side && !UNIT_TYPES[o.type].static &&
         cheb(o, u) <= 1 && (o.hp < o.maxHp || o.poisoned > 0)).map((o) => ({ x: o.x, y: o.y, id: o.id }));
     }
+    if (ab === 'detonate') {
+      // Дрон: самоподрыв, если рядом есть видимый враг
+      return g.units.some((o) => o.alive && o.side !== u.side && !isHidden(g, o) && cheb(o, u) <= 1) ? [{ x: u.x, y: u.y, id: u.id }] : [];
+    }
+    if (ab === 'barrier') {
+      if (u.barrierCd > 0) return [];
+      if (g.units.filter((o) => o.alive && o.type === 'barrier' && o.owner === u.id).length >= BARRIER.max) return [];
+      const out = [];
+      for (const [dx, dy] of DIR8) {
+        const x = u.x + dx, y = u.y + dy;
+        if (inBounds(x, y) && !isWall(g, x, y) && !unitAt(g, x, y) && !crateAt(g, x, y)) out.push({ x, y });
+      }
+      return out;
+    }
     if (ab === 'raise') {
       if (u.raiseCd > 0) return [];
-      const alive = g.units.filter((o) => o.alive && o.type === 'zombie' && o.owner === u.id).length;
-      if (alive >= RAISE.max) return [];
+      const alive = g.units.filter((o) => o.alive && o.type === 'zombie' && o.side === u.side).length;
+      if (alive >= RAISE.max) return []; // у команды не больше 3 зомби одновременно
       const free = DIR8.some(([dx, dy]) => { const x = u.x + dx, y = u.y + dy; return inBounds(x, y) && !isWall(g, x, y) && !unitAt(g, x, y) && !crateAt(g, x, y); });
       return free ? [{ x: u.x, y: u.y, id: u.id }] : [];
     }
@@ -480,7 +565,7 @@
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS,
     BUFF_CAP, rammable, unitDmg, unitRange, isBehind, sniperLocked,
     canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
-    SHOT_KIND, FREEZE, RAISE, REVIVE, POISON, revivable, hasReviver, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
+    CAMPAIGN, AI_LEVELS, ROLES, SQUAD_SAME_MAX, BARRIER, MINES, DETONATE, canJet, SHOT_KIND, FREEZE, RAISE, REVIVE, POISON, revivable, hasReviver, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
     squadError, squadCost, isHidden, abilityTargets,
     jetpackCells, mineCells, hasUsefulMove, hasUsefulAct, shouldAutoEnd,
   };

@@ -38,11 +38,18 @@
       <div class="menu-actions enter" style="--d:.5s">
         <button id="btnCreate" class="btn primary big">▶ Создать комнату</button>
         <div class="join-row">
+          <button id="btnVsAI" class="btn">🤖 Против ИИ</button>
+          <button id="btnCampaign" class="btn">🗺 Кампания</button>
+        </div>
+        <div class="join-row">
           <input id="codeInput" class="code-input" maxlength="4" placeholder="КОД" autocomplete="off" spellcheck="false" autocapitalize="characters" inputmode="text">
           <button id="btnJoin" class="btn">Войти</button>
         </div>
         <button id="btnSolo" class="btn">Тренировка на одном экране</button>
-        <button id="btnTutorial" class="btn">🎓 Обучение</button>
+        <div class="join-row">
+          <button id="btnTutorial" class="btn">🎓 Обучение</button>
+          <button id="btnCodex" class="btn">📖 Справочник</button>
+        </div>
       </div>
 
       <div class="menu-cols enter" style="--d:.65s">
@@ -129,8 +136,10 @@
       <div id="lootInfo" class="loot-info" title="Уровень лута растёт по ходу матча. Удача (🍀) повышает шанс редкого лута."></div>
       <div class="hud-buttons">
         <button id="btnCancel" class="btn small" title="Отменить выбор (ПКМ / Esc)">✕ Отмена</button>
+        <button id="btnCodexGame" class="btn small" title="Справочник">📖</button>
         <button id="btnEndTurn" class="btn primary">Завершить ход ⏎</button>
         <button id="btnSurrender" class="btn danger small">Сдаться</button>
+        <button id="btnShowOver" class="btn small primary hidden">🏆 Итоги</button>
         <button id="btnLeaveGame" class="btn small hidden">← В меню</button>
       </div>
     </header>
@@ -158,6 +167,7 @@
       <p id="overSub"></p>
       <p id="overReward" class="over-reward"></p>
       <div class="btn-row">
+        <button id="btnNextLevel" class="btn primary hidden">▶ Следующий уровень</button>
         <button id="btnRematch" class="btn primary">Реванш</button>
         <button id="btnToLobby" class="btn">В комнату</button>
         <button id="btnToMenu" class="btn">В меню</button>

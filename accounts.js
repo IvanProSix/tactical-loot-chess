@@ -174,6 +174,7 @@ function normalize(p) {
   p.daily = p.daily || { streak: 0, last: null };
   p.stats = p.stats || { wins: 0, losses: 0, streak: 0, earned: 0 };
   p.farm = p.farm || { day: null, vs: {} };
+  p.campaign = Math.max(0, Math.min(R.CAMPAIGN.length, Math.floor(p.campaign || 0))); // пройдено уровней кампании
   p.sessions = Array.isArray(p.sessions) ? p.sessions : [];
 }
 
@@ -430,9 +431,20 @@ async function adminAction(admin, d) {
   return { target: Object.assign({ id: t.id }, profileView(t)), msg };
 }
 
+// Победа на уровне кампании: открывает следующий; монеты — только за первое прохождение
+function campaignWin(p, level) {
+  if (level < 1 || level > R.CAMPAIGN.length || level > (p.campaign || 0) + 1) return { coins: 0 };
+  if (level <= (p.campaign || 0)) return { coins: 0, repeat: true };
+  p.campaign = level;
+  const coins = R.CAMPAIGN[level - 1].reward;
+  p.coins += coins;
+  save(p);
+  return { coins };
+}
+
 function profileView(p) {
   return {
-    name: p.name, admin: isAdmin(p), coins: p.coins, unlocked: p.unlocked.slice(), squad: p.squad.slice(),
+    name: p.name, admin: isAdmin(p), coins: p.coins, campaign: p.campaign || 0, unlocked: p.unlocked.slice(), squad: p.squad.slice(),
     stats: Object.assign({}, p.stats), mine: mineInfo(p), daily: dailyInfo(p),
   };
 }
@@ -448,5 +460,5 @@ module.exports = {
     for (const n of ADMINS) if (!(await loadByName(n))) console.warn(`[admin] ⚠ ник «${n}» из ADMIN_NAMES не зарегистрирован`);
     if (ADMINS.size) console.log(`[admin] админов в ADMIN_NAMES: ${ADMINS.size}`);
   }, flushAll, peek: (id) => cache.get(id) || null, register, login, resume, logout, loadById,
-  profileView, adminAction, changePassword, collectMine, upgradeMine, claimDaily, buyUnit, setSquad, matchResult,
+  profileView, adminAction, changePassword, campaignWin, collectMine, upgradeMine, claimDaily, buyUnit, setSquad, matchResult,
 };

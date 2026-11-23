@@ -7,6 +7,7 @@ const path = require('path');
 const { Server } = require('socket.io');
 const R = require('./public/shared.js');
 const A = require('./accounts.js');
+const AI = require('./ai.js');
 
 const PORT = Number(process.env.PORT) || 3000;
 const N = R.N;
@@ -129,10 +130,11 @@ function serializeRoom(room) {
   const slots = {};
   for (const s of SIDES) {
     const sl = room.slots[s];
-    slots[s] = sl ? { token: sl.token, name: sl.name, ready: sl.ready, playerId: sl.playerId || null, squad: sl.squad } : null;
+    slots[s] = sl ? { token: sl.token, name: sl.name, ready: sl.ready, playerId: sl.playerId || null, squad: sl.squad, bot: !!sl.bot } : null;
   }
   // g.room — неперечисляемое свойство, в JSON не попадает
-  return { slots, phase: room.phase, solo: room.solo, tutorial: !!room.tutorial, game: room.game, rematch: room.rematch, rewards: room.rewards || null };
+  const bot = room.bot ? { side: room.bot.side, mode: room.bot.mode, level: room.bot.level, campaign: room.bot.campaign || null, name: room.bot.name, budget: room.bot.budget, randomSquad: room.bot.randomSquad } : null;
+  return { slots, phase: room.phase, solo: room.solo, tutorial: !!room.tutorial, bot, game: room.game, rematch: room.rematch, rewards: room.rewards || null };
 }
 function persistRoom(room) {
   if (!rooms.has(room.code)) return;
@@ -163,11 +165,12 @@ async function restoreRooms() {
     }
     const room = {
       code, slots: { blue: null, red: null }, phase: data.phase || 'lobby', solo: !!data.solo, tutorial: !!data.tutorial, game: data.game || null,
+      bot: data.bot || (data.tutorial ? { side: 'red', mode: 'tutorial' } : null),
       rematch: data.rematch || { blue: false, red: false }, rewards: data.rewards || null, turnTimer: null, emptySince: Date.now(),
     };
     for (const s of SIDES) {
       const sl = data.slots && data.slots[s];
-      if (sl) room.slots[s] = Object.assign({}, sl, { connected: false, socketId: null, graceTimer: null, ready: room.phase === 'lobby' ? false : sl.ready });
+      if (sl) room.slots[s] = Object.assign({}, sl, { connected: !!sl.bot, socketId: null, graceTimer: null, ready: room.phase === 'lobby' ? false : sl.ready });
       if (sl && sl.playerId) await A.loadById(sl.playerId).catch(() => null); // чтобы награды начислились, даже если игрок не вернётся
     }
     if (room.game) {
@@ -289,6 +292,7 @@ function makeUnit(g, id, type, side, x, y) {
     moved: false, acted: false, attacked: false, slowed: false, slowNext: false, boost: 0, revealUntil: null,
     buffs: { dmg: 0, range: 0, move: 0, steady: 0 }, frozen: 0, freezeCd: 0,
     poisoned: 0, poisonStacks: 0, raiseCd: 0, reviveUses: 0, diedRound: null, life: null,
+    jetted: false, barrierCd: 0, minesCd: 0, minesLeft: 0,
   };
   g.units.push(u);
   return u;
@@ -489,12 +493,13 @@ const RARITY_ICON = ['', '◆ ', '◆◆ ', '★ ', '✦ '];
 
 function pickup(g, u, crate) {
   g.crates = g.crates.filter((c) => c !== crate);
-  let loot;
+  let loot, scripted = false;
   if (g.room && g.room.tutorial && !g.tutLoot) {
-    g.tutLoot = true;
+    g.tutLoot = true; scripted = true;
     loot = { type: 'shield', tier: 1, charges: R.itemStat('shield', 1, 'charges') };
   } else loot = rollLoot(g, u.side, u);
   giveLoot(g, u, loot, crate.x, crate.y);
+  if (scripted) return; // в обучении без случайного «двойного дропа»
   // Двойной дроп: рядом выпадает ещё один ящик
   if (Math.random() < R.doubleDropChance(g.luck[u.side], g.round)) {
     const spots = R.DIR8.map(([dx, dy]) => [crate.x + dx, crate.y + dy]).filter(([x, y]) => cellFree(g, x, y));
@@ -545,6 +550,7 @@ function giveLoot(g, u, it, x, y) {
     addLog(g, `🍀 ${tag}${label(u)}: ${full} — удача ${SIDE_GEN[u.side]} ${add} на ${turns} ход.`, 'loot', 'all', it.tier);
   } else {
     const old = u.item;
+    if (it.type === 'landmine' && R.UNIT_TYPES[u.type].mineSight) it = Object.assign({}, it, { charges: (it.charges || 1) * 2 }); // Сапёр: двойной запас мин
     u.item = itemCopy(it);
     addLog(g, `📦 ${tag}${label(u)} подбирает: ${full}${old ? ` (выброшен: ${R.ITEMS[old.type].name})` : ''}`, 'loot', 'all', it.tier);
   }
@@ -560,6 +566,13 @@ function useCharge(u) {
 // Вход юнита в клетку: мина / ящик. Возвращает true, если движение прервано.
 function enterCell(g, u, flush) {
   const mine = g.mines.find((m) => m.x === u.x && m.y === u.y && m.side !== u.side);
+  if (mine && R.UNIT_TYPES[u.type].mineSight) {
+    if (flush) flush();
+    g.mines = g.mines.filter((m) => m !== mine);
+    ev(g, 'defuse', { unitId: u.id, x: u.x, y: u.y });
+    addLog(g, `🔧 ${label(u)} обезвреживает мину`, 'mine');
+    return false;
+  }
   if (mine) {
     if (flush) flush();
     g.mines = g.mines.filter((m) => m !== mine);
@@ -643,7 +656,7 @@ function trampleTravel(g, u, path) {
       flush();
       reveal(g, t);
       const px = nx + dx, py = ny + dy;
-      const free = R.inBounds(px, py) && !R.isWall(g, px, py) && !R.unitAt(g, px, py);
+      const free = !R.UNIT_TYPES[t.type].static && R.inBounds(px, py) && !R.isWall(g, px, py) && !R.unitAt(g, px, py);
       ev(g, 'ram', { unitId: t.id, by: u.id });
       addLog(g, `🐘 ${label(u)} таранит ${label(t)}!`, 'atk');
       if (free) {
@@ -670,7 +683,7 @@ function reveal(g, u) {
   if (R.UNIT_TYPES[u.type].stealth) u.revealUntil = g.turnNo + 1; // виден до конца хода соперника
 }
 function pushAway(g, from, t) {
-  if (!t.alive) return;
+  if (!t.alive || R.UNIT_TYPES[t.type].static) return;
   const tx = t.x, ty = t.y;
   const nx = tx + Math.sign(tx - from.x), ny = ty + Math.sign(ty - from.y);
   if (R.inBounds(nx, ny) && !R.isWall(g, nx, ny) && !R.unitAt(g, nx, ny)) {
@@ -730,22 +743,52 @@ function actAbility(g, side, a) {
   if (!u) return 'Юнит недоступен';
   const ab = R.UNIT_TYPES[u.type].ability;
   if (!ab) return 'У юнита нет способности';
-  if (!R.canAct(g, u)) return 'Действие уже потрачено';
+  const secondMine = ab === 'mines' && u.minesLeft > 0;
+  if (!secondMine && !R.canAct(g, u)) return 'Действие уже потрачено';
   const x = toInt(a.x), y = toInt(a.y);
   const cell = R.abilityTargets(g, u).find((c) => c.x === x && c.y === y);
   if (!cell) return 'Сюда применить нельзя';
   activate(g, u);
   u.acted = true;
+  if (ab === 'mines') {
+    g.mines.push({ id: 'm' + (g.seq++), x, y, side: u.side, dmg: R.MINES.dmg });
+    if (secondMine) u.minesLeft = 0;
+    else { u.minesLeft = R.MINES.count - 1; u.minesCd = R.MINES.cooldown; }
+    ev(g, 'mineplaced', { unitId: u.id, x, y, side: u.side, item: u.item ? Object.assign({}, u.item) : null }, u.side);
+    addLog(g, `💣 ${label(u)} ставит мину${u.minesLeft ? ' (можно ещё одну)' : ''}`, 'mine', u.side);
+    return null;
+  }
+  if (ab === 'detonate') {
+    // Дрон: самоподрыв — урон всем врагам вокруг, дрон погибает
+    const foes = g.units.filter((o) => o.alive && o.side !== u.side && R.cheb(o, u) <= 1);
+    ev(g, 'explosion', { x: u.x, y: u.y, big: true });
+    addLog(g, `💥 ${label(u)}: САМОПОДРЫВ!`, 'death');
+    for (const t of foes) damage(g, t, R.DETONATE.dmg);
+    damage(g, u, 99, { pierce: true, noShield: true });
+    return null;
+  }
+  if (ab === 'barrier') {
+    const b = makeUnit(g, u.side[0] + 'w' + (g.seq++), 'barrier', u.side, x, y);
+    b.owner = u.id;
+    u.barrierCd = R.BARRIER.cooldown;
+    ev(g, 'spawn', { unit: Object.assign({}, b), kind: 'barrier' });
+    addLog(g, `🧱 ${label(u)} ставит преграду`, 'sys');
+    return null;
+  }
   if (ab === 'heal') {
     const t = R.unitAt(g, x, y);
     const before = t.hp;
-    const cured = t.poisoned > 0;
+    const wasPoisoned = t.poisoned > 0;
     t.hp = Math.min(t.maxHp, t.hp + R.HEAL_AMOUNT);
-    t.poisoned = 0; t.poisonStacks = 0;
-    ev(g, 'heal', { unitId: t.id, amount: t.hp - before, hp: t.hp, cured });
-    addLog(g, `✚ ${label(u)} лечит ${label(t)}: +${t.hp - before} HP${cured ? ', яд снят' : ''}`, 'heal');
+    if (wasPoisoned) { // снимает 1 стак яда
+      t.poisonStacks = Math.max(0, (t.poisonStacks || 1) - 1);
+      if (!t.poisonStacks) t.poisoned = 0;
+    }
+    const cured = wasPoisoned && !t.poisoned;
+    ev(g, 'heal', { unitId: t.id, amount: t.hp - before, hp: t.hp, cured, stacks: t.poisonStacks || 0, poisoned: t.poisoned || 0 });
+    addLog(g, `✚ ${label(u)} лечит ${label(t)}: +${t.hp - before} HP${wasPoisoned ? (cured ? ', яд снят' : `, яд ослаблен (×${t.poisonStacks})`) : ''}`, 'heal');
   } else if (ab === 'raise') {
-    const alive = g.units.filter((o) => o.alive && o.type === 'zombie' && o.owner === u.id).length;
+    const alive = g.units.filter((o) => o.alive && o.type === 'zombie' && o.side === u.side).length; // лимит — на всю команду
     const cells = R.DIR8.map(([dx, dy]) => [u.x + dx, u.y + dy])
       .filter(([cx, cy]) => R.inBounds(cx, cy) && !R.isWall(g, cx, cy) && !R.unitAt(g, cx, cy) && !R.crateAt(g, cx, cy));
     // ближе к врагу — в первую очередь
@@ -837,7 +880,7 @@ function actShotgun(g, side, a) {
   ev(g, 'shot', { unitId: u.id, from: { x: u.x, y: u.y }, to: { x: tx, y: ty }, kind: 'shotgun', side: u.side, item: after });
   ev(g, 'explosion', { x: tx, y: ty, big: false });
   addLog(g, `💥 ${label(u)} стреляет из Дробовика в ${label(t)}!`, 'atk');
-  const splash = g.units.filter((o) => o.alive && o !== u && o !== t && R.cheb(o, { x: tx, y: ty }) === 1);
+  const splash = g.units.filter((o) => o.alive && o !== u && o !== t && o.side !== u.side && R.cheb(o, { x: tx, y: ty }) === 1); // своих не задевает
   damage(g, t, info.dmg);
   for (const o of splash) damage(g, o, splashDmg);
   if (t.alive) {
@@ -856,11 +899,11 @@ function actJetpack(g, side, a) {
   const u = getOwnUnit(g, side, a.unitId);
   if (!u) return 'Юнит недоступен';
   if (!u.item || u.item.type !== 'jetpack') return 'Нет джетпака';
-  if (!R.canMove(g, u)) return 'Движение уже потрачено';
+  if (!R.canJet(g, u)) return u.jetted ? 'Прыжок в этот ход уже был' : 'Движение уже потрачено';
   const x = toInt(a.x), y = toInt(a.y);
   if (!R.jetpackCells(g, u).some((c) => c.x === x && c.y === y)) return 'Сюда прыгнуть нельзя';
   activate(g, u);
-  u.moved = true;
+  u.jetted = true; // движение не тратится целиком: можно пройти ещё, но на 1 клетку меньше
   const after = useCharge(u);
   const from = { x: u.x, y: u.y };
   u.x = x; u.y = y;
@@ -906,6 +949,9 @@ function endTurn(g, reason) {
     if (u.frozen > 0) { u.frozen--; if (!u.frozen && u.alive) ev(g, 'thaw', { unitId: u.id }); }
     if (u.freezeCd > 0) u.freezeCd--;
     if (u.raiseCd > 0) u.raiseCd--;
+    if (u.barrierCd > 0) u.barrierCd--;
+    if (u.minesCd > 0) u.minesCd--;
+    u.jetted = false; u.minesLeft = 0;
   }
   g.activated = [];
   if (side === 'red') {
@@ -1016,6 +1062,11 @@ function scheduleTurnTimer(room) {
 }
 
 // ---------------------------------------------------------------- Фильтрация состояния (анти-чит / туман войны)
+// Вражеская мина видна, если рядом (радиус mineSight) есть живой Сапёр смотрящей стороны
+function sapperSees(g, viewer, m) {
+  if (viewer !== 'blue' && viewer !== 'red') return false;
+  return g.units.some((u) => u.alive && u.side === viewer && R.UNIT_TYPES[u.type].mineSight && R.cheb(u, m) <= R.UNIT_TYPES[u.type].mineSight);
+}
 function stateFor(room, viewer) {
   const g = room.game;
   if (!g) return null;
@@ -1038,13 +1089,14 @@ function stateFor(room, viewer) {
     luck: Object.assign({}, g.luck),
     luckBuff: { blue: g.luckBuff.blue && Object.assign({}, g.luckBuff.blue), red: g.luckBuff.red && Object.assign({}, g.luckBuff.red) },
     crates: g.crates.map((c) => ({ id: c.id, x: c.x, y: c.y })), // содержимое ящика скрыто
-    mines: g.mines.filter((m) => seeAll || m.side === viewer).map((m) => ({ id: m.id, x: m.x, y: m.y, side: m.side, dmg: m.dmg })),
+    mines: g.mines.filter((m) => seeAll || m.side === viewer || sapperSees(g, viewer, m)).map((m) => ({ id: m.id, x: m.x, y: m.y, side: m.side, dmg: m.dmg })),
     log: g.log.filter((l) => l.vis === 'all' || seeAll || l.vis === viewer).slice(-100)
       .map((l) => ({ id: l.id, text: l.text, cls: l.cls, tier: l.tier })),
     players: { blue: pl('blue'), red: pl('red') },
     rematch: Object.assign({}, room.rematch),
     rewards: room.phase === 'over' ? room.rewards : null,
     tutorial: !!room.tutorial,
+    ai: room.bot && room.bot.mode === 'ai' ? { level: room.bot.level, campaign: room.bot.campaign || null, name: room.bot.name } : null,
   };
 }
 function eventsFor(viewer, events) {
@@ -1058,18 +1110,7 @@ function eventsFor(viewer, events) {
 function broadcastState(room, events) {
   if (!room.game) return;
   persistRoom(room);
-  if (room.tutorial && room.phase === 'game' && room.game.turn === 'red' && !room.botTimer) {
-    const g = room.game;
-    room.botTimer = setTimeout(() => {
-      room.botTimer = null;
-      if (room.game !== g || room.phase !== 'game' || g.turn !== 'red') return;
-      g.events = [];
-      endTurn(g, 'manual');
-      const evs = g.events;
-      g.events = null;
-      broadcastState(room, evs);
-    }, 1200);
-  }
+  scheduleBot(room);
   for (const socket of roomSockets(room)) {
     const v = viewerOf(socket, room);
     socket.emit('state', { state: stateFor(room, v), events: eventsFor(v, events) });
@@ -1078,7 +1119,8 @@ function broadcastState(room, events) {
 function lobbyFor(socket, room) {
   const pub = (s) => (s ? { name: s.name, ready: s.ready, connected: s.connected, squad: s.squad, account: !!s.playerId } : null);
   return {
-    code: room.code, phase: room.phase, solo: room.solo, tutorial: !!room.tutorial, you: viewerOf(socket, room),
+    code: room.code, phase: room.phase, solo: room.solo, tutorial: !!room.tutorial,
+    ai: room.bot && room.bot.mode === 'ai' ? { level: room.bot.level, campaign: room.bot.campaign || null } : null, you: viewerOf(socket, room),
     slots: { blue: pub(room.slots.blue), red: pub(room.slots.red) },
   };
 }
@@ -1091,7 +1133,9 @@ function startGame(room, solo) {
   clearTimeout(room.turnTimer);
   room.solo = solo;
   room.rewards = null;
+  if (room.bot && room.bot.mode === 'ai' && !room.bot.campaign && room.bot.randomSquad) room.slots.red.squad = randomSquad(room.bot.budget || 12);
   room.game = createGame(room);
+  if (room.bot && room.bot.campaign) applyCampaign(room.game, room.bot.campaign);
   room.game.turnEndsAt += START_DELAY_MS; // первый ход начинается после отсчёта
   room.phase = 'game';
   room.rematch = { blue: false, red: false };
@@ -1099,6 +1143,67 @@ function startGame(room, solo) {
   emitLobby(room);
   broadcastState(room, []);
   console.log(`[game] ${room.code}: новая партия ${room.game.id}${solo ? ' (1 экран)' : ''}`);
+}
+
+// ---------------------------------------------------------------- Бот: мишени обучения и ИИ-противник
+// Ходит по одному действию с паузой — игрок успевает увидеть анимации
+function scheduleBot(room) {
+  const g = room.game;
+  const bot = room.bot;
+  if (!bot || room.phase !== 'game' || !g || g.turn !== bot.side || room.botTimer) return;
+  room.botTimer = setTimeout(() => {
+    room.botTimer = null;
+    if (room.game !== g || room.phase !== 'game' || g.turn !== bot.side) return;
+    if (bot.turnNo !== g.turnNo) { bot.turnNo = g.turnNo; bot.steps = 0; bot.banned = new Set(); }
+    bot.steps++;
+    let a = { type: 'endTurn' };
+    if (bot.mode === 'ai' && bot.steps <= 12) {
+      try { a = AI.chooseAction(g, bot.side, bot.level, bot.banned); } catch (e) { console.error('[ai]', e); }
+    }
+    const { err, events } = performAction(g, bot.side, a);
+    if (err) {
+      bot.banned.add(JSON.stringify(a)); // сервер отказал — пробуем другое
+      return scheduleBot(room);
+    }
+    broadcastState(room, events);
+  }, bot.mode === 'tutorial' ? 1200 : 850);
+}
+function randomSquad(budget) {
+  const pool = R.BASIC_UNITS.concat(R.SHOP_UNITS);
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const sq = []; let cost = 0;
+    for (let i = 0; i < 30 && sq.length < R.SQUAD_MAX; i++) {
+      const t = pool[Math.floor(Math.random() * pool.length)];
+      const T = R.UNIT_TYPES[t];
+      if (cost + T.cost > budget) continue;
+      if (sq.filter((x) => x === t).length >= (T.maxInSquad || R.SQUAD_SAME_MAX)) continue;
+      sq.push(t); cost += T.cost;
+    }
+    if (cost >= budget - 1 && sq.length >= 3) return sq;
+  }
+  return R.DEFAULT_SQUAD.slice();
+}
+// Уровень кампании: усиленный вражеский Командир и заранее спрятанные мины
+function applyCampaign(g, level) {
+  const L = R.CAMPAIGN[level - 1];
+  if (!L) return;
+  const cmd = g.units.find((u) => u.side === 'red' && u.type === 'commander');
+  if (cmd) { cmd.maxHp = L.cmdHp; cmd.hp = L.cmdHp; }
+  for (const [x, y] of L.mines || []) {
+    if (!R.isWall(g, x, y) && !R.unitAt(g, x, y) && !R.crateAt(g, x, y)) g.mines.push({ id: 'm' + (g.seq++), x, y, side: 'red', dmg: 4 });
+  }
+  addLog(g, `🗺 Уровень ${level}: ${L.name}`, 'sys');
+}
+function startBotRoom(socket, info, cfg) {
+  if (info.code) leaveRoom(socket);
+  const room = createRoom(false);
+  room.bot = Object.assign({ side: 'red', mode: 'ai' }, cfg);
+  info.code = room.code;
+  socket.join('r:' + room.code);
+  room.slots.blue = seatFor(info, socket, true);
+  room.slots.red = { token: 'bot-' + room.code, name: cfg.name, ready: true, connected: true, socketId: null, graceTimer: null, playerId: null, squad: cfg.squad, bot: true };
+  startGame(room, false);
+  return room;
 }
 
 // ---------------------------------------------------------------- Обучение
@@ -1161,6 +1266,18 @@ function emitProfile(playerId) {
 function settleRewards(room, g) {
   room.rewards = null;
   if (room.solo || room.tutorial) return;
+  if (room.bot) {
+    // бой с ИИ: монеты только за первое прохождение уровня кампании
+    if (!room.bot.campaign || g.winner === room.bot.side) return;
+    const ws = room.slots[R.other(room.bot.side)];
+    const p = ws && ws.playerId ? A.peek(ws.playerId) : null;
+    if (!p) { room.rewards = { note: 'Прогресс кампании сохранён на этом устройстве. Монеты — только с аккаунтом.' }; return; }
+    const r = A.campaignWin(p, room.bot.campaign);
+    room.rewards = r.coins ? { [R.other(room.bot.side)]: r.coins } : { note: r.repeat ? 'Уровень уже пройден — награда только за первую победу' : 'Награда не начислена' };
+    if (r.coins) addLog(g, `🗺 Уровень ${room.bot.campaign} пройден! +${r.coins} 💰`, 'loot');
+    emitProfile(p.id);
+    return;
+  }
   const ws = room.slots[g.winner], ls = room.slots[R.other(g.winner)];
   if (!ws || !ls || !ws.playerId || !ls.playerId || ws.playerId === ls.playerId) {
     room.rewards = { note: 'Монеты получают только игроки с аккаунтами' };
@@ -1197,7 +1314,12 @@ function joinRoom(socket, room) {
   info.code = room.code;
   socket.join('r:' + room.code);
   room.emptySince = null;
-  const side = sideOfToken(room, info.token);
+  let side = sideOfToken(room, info.token);
+  // Вернулся в свой матч из другой вкладки/браузера: узнаём по аккаунту и отдаём его место
+  if (!side && info.playerId) {
+    const own = SIDES.find((s) => room.slots[s] && room.slots[s].playerId === info.playerId && !room.slots[s].bot);
+    if (own) { room.slots[own].token = info.token; side = own; }
+  }
   if (side) {
     for (const s of SIDES) {
       const sl = room.slots[s];
@@ -1231,7 +1353,7 @@ function leaveRoom(socket) {
   info.code = null;
   if (!room) return;
   const viewer = viewerOf(socket, room);
-  if (viewer === 'both' || room.tutorial) { clearTimeout(room.botTimer); return deleteRoom(room); }
+  if (viewer === 'both' || room.tutorial || room.bot) { clearTimeout(room.botTimer); return deleteRoom(room); }
   if (viewer === 'blue' || viewer === 'red') {
     const sl = room.slots[viewer];
     if (room.phase === 'game') surrender(room, viewer);
@@ -1255,7 +1377,7 @@ function publicRooms() {
   const open = [];
   let games = 0;
   for (const room of rooms.values()) {
-    if (room.tutorial) continue;
+    if (room.tutorial || room.bot) continue;
     if (room.phase !== 'lobby') { if (!room.solo) games++; continue; }
     if (room.solo) continue;
     const seated = SIDES.map((s) => room.slots[s]).filter(Boolean);
@@ -1454,6 +1576,31 @@ io.on('connection', (socket) => {
   });
 
   // Тренировка: отдельная приватная комната, обе команды у одного игрока
+  socket.on('vsAI', (d) => {
+    const info = socketsInfo.get(socket.id);
+    if (!info) return;
+    if (rooms.size >= MAX_ROOMS) return socket.emit('errorMsg', 'Сервер переполнен, попробуйте позже');
+    if (roomSpam()) return socket.emit('errorMsg', 'Слишком много комнат, подождите немного');
+    const level = ['easy', 'medium', 'hard'].includes(d && d.level) ? d.level : 'medium';
+    const budget = { easy: 10, medium: 12, hard: 14 }[level];
+    startBotRoom(socket, info, { level, name: `ИИ · ${R.AI_LEVELS[level]}`, squad: randomSquad(budget), budget, randomSquad: true });
+  });
+
+  socket.on('campaign', (d) => {
+    const info = socketsInfo.get(socket.id);
+    if (!info) return;
+    if (rooms.size >= MAX_ROOMS) return socket.emit('errorMsg', 'Сервер переполнен, попробуйте позже');
+    if (roomSpam()) return socket.emit('errorMsg', 'Слишком много комнат, подождите немного');
+    const level = Math.floor(Number(d && d.level));
+    const L = R.CAMPAIGN[level - 1];
+    if (!L) return socket.emit('errorMsg', 'Нет такого уровня');
+    // открыт ли уровень: с аккаунтом — по прогрессу на сервере, гость — по прогрессу на своём устройстве
+    const p = info.playerId ? A.peek(info.playerId) : null;
+    const done = p ? (p.campaign || 0) : Math.max(0, Math.min(R.CAMPAIGN.length, Math.floor(Number(d && d.guestDone) || 0)));
+    if (level > done + 1) return socket.emit('errorMsg', 'Сначала пройдите предыдущие уровни');
+    startBotRoom(socket, info, { level: L.ai, campaign: level, name: `Ур. ${level}: ${L.name}`, squad: L.enemy.slice() });
+  });
+
   socket.on('tutorial', () => {
     const info = socketsInfo.get(socket.id);
     if (!info) return;
@@ -1465,7 +1612,8 @@ io.on('connection', (socket) => {
     info.code = room.code;
     socket.join('r:' + room.code);
     room.slots.blue = Object.assign(seatFor(info, socket, true), { squad: ['sniper', 'assault', 'medic'] });
-    room.slots.red = { token: 'tutorial-bot', name: 'Мишени', ready: true, connected: true, socketId: null, graceTimer: null, playerId: null, squad: [] };
+    room.slots.red = { token: 'tutorial-bot', name: 'Мишени', ready: true, connected: true, socketId: null, graceTimer: null, playerId: null, squad: [], bot: true };
+    room.bot = { side: 'red', mode: 'tutorial' };
     startTutorial(room);
   });
 
@@ -1509,6 +1657,7 @@ io.on('connection', (socket) => {
     if (!viewer) return;
     if (viewer === 'both') return startGame(room, true);
     if (room.tutorial) return startTutorial(room); // «ещё раз» в обучении
+    if (room.bot) return startGame(room, false); // реванш с ИИ
     room.rematch[viewer] = true;
     if (room.rematch.blue && room.rematch.red) startGame(room, false);
     else broadcastState(room, []);
@@ -1519,7 +1668,7 @@ io.on('connection', (socket) => {
     if (!room) return;
     const viewer = viewerOf(socket, room);
     if (!viewer || room.phase === 'lobby') return;
-    if (room.solo || room.tutorial) { leaveRoom(socket); return socket.emit('menu'); }
+    if (room.solo || room.tutorial || room.bot) { leaveRoom(socket); return socket.emit('menu'); }
     clearTimeout(room.turnTimer);
     room.phase = 'lobby';
     room.game = null;
