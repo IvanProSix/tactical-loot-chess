@@ -88,11 +88,18 @@ function scoreMove(g, u, cell, side, level) {
   const towardCmd = ec ? R.cheb(u, ec) - R.cheb(cell, ec) : 0;
   const lethal = Math.max(0, danger(g, side, cell) - u.hp + 1); // >0 — клетка смертельна
   if (u.type === 'commander') {
-    // Командир держится в тылу, пока бой не затянулся; уходит от смертельной опасности
     const dB = danger(g, side, u), dA = danger(g, side, cell);
+    // Остался один (или бой затянулся) — Командир сам идёт в бой каждый ход, а не отсиживается
+    const alone = !g.units.some((o) => o.alive && o.side === side && o !== u && !R.UNIT_TYPES[o.type].static && !R.UNIT_TYPES[o.type].auto);
+    if (alone || g.round >= 14) {
+      let c = 3 + (before - after) * 2 + towardCmd - (dA - dB) - lethal * 3;
+      if (foes.some((f) => canHitFrom(g, u, cell, f))) c += 10 + (R.canAct(g, u) ? 4 : 0);
+      if (R.crateAt(g, cell.x, cell.y)) c += 6;
+      return Math.max(1.5, c); // ход всегда лучше, чем простой
+    }
+    // Иначе держится в тылу и уходит от смертельной опасности
     let c = (dB - dA) * 2 - lethal * 4;
     if (foes.some((f) => canHitFrom(g, u, cell, f) && f.hp <= R.unitDmg(u))) c += 8;
-    if (g.round >= 14) c += towardCmd * 2 + (before - after);
     return c - 1;
   }
   let s = 0;
