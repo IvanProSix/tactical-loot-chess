@@ -60,7 +60,7 @@
       desc: 'Особый юнит — выдаёт только администратор. ТАРАН: ходит сквозь стены, ломая их, и сквозь врагов — враг на пути получает урон и отлетает (если некуда — +1 урона, и слоник останавливается). Атака отбрасывает цель. Способность: трубный рёв — враги вокруг получают 1 урона и отлетают.' },
     icemage: { name: 'Ледяной маг', role: 'special', hp: 6, move: 2, dmg: 1, range: 3, minRange: 1, cost: 3, price: 0, special: true, ability: 'freeze', freezeOnHit: 1,
       desc: 'Особый юнит — выдаёт только администратор. Способность (Действие): ледяной залп — враг в радиусе 4 на линии огня получает 1 урона и не может двигаться 3 своих хода (стрелять может). Перезарядка — 3 хода. Обычная атака замораживает на 1 ход.' },
-    bishop: { name: 'Офицер', role: 'special', hp: 5, move: 1, dmg: 2, range: 7, minRange: 1, cost: 3, price: 0, special: true, bishop: true,
+    bishop: { name: 'Епископ (Bishop)', role: 'special', hp: 5, move: 1, dmg: 2, range: 7, minRange: 1, cost: 3, price: 0, special: true, bishop: true,
       desc: 'Особый юнит — выдаёт только администратор. Ходит как шахматный слон: по диагонали на любое число клеток, пока путь свободен, — или на 1 клетку в любую сторону, как король. Стреляет только по диагонали на любую дальность; выстрел останавливает первый же юнит, стена или преграда на линии.' },
     turret: { name: 'Турель', role: 'summon', hp: 2, move: 0, dmg: 1, range: 3, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по самому раненому врагу в радиусе 3.' },
@@ -93,7 +93,7 @@
     { name: 'Минное поле', desc: 'В центре спрятаны мины, Сапёр ставит новые. Свой Сапёр их увидит.', enemy: ['sapper', 'grenadier', 'assault', 'sniper'], cmdHp: 12, ai: 'hard', reward: 900,
       mines: [[1, 3], [4, 3], [6, 4], [3, 4], [2, 4]] },
     { name: 'Генерал', desc: 'Элитный отряд и закалённый Командир. Финал основной кампании.', enemy: ['heavy', 'sniper', 'sniper', 'grenadier', 'paramedic'], cmdHp: 14, ai: 'hard', reward: 1000 },
-    { name: 'Враги админа', desc: 'Секретный уровень. Против тебя — личная гвардия админа: Зелёный слоник, Ледяной маг и Офицер.', secret: true,
+    { name: 'Враги админа', desc: 'Секретный уровень. Против тебя — личная гвардия админа: Зелёный слоник, Ледяной маг и Епископ.', secret: true,
       enemy: ['elephant', 'icemage', 'bishop', 'necromancer', 'heavy'], cmdHp: 15, ai: 'hard', reward: 2000 },
   ];
   const AI_LEVELS = { easy: 'Лёгкий', medium: 'Средний', hard: 'Сложный' };
@@ -375,7 +375,7 @@
     return isWall(g, x, y) || !!(o && o.side !== u.side);
   }
 
-  // Офицер: шаг короля в любую из 8 сторон или скольжение по диагонали до первого препятствия.
+  // Епископ: шаг короля в любую из 8 сторон или скольжение по диагонали до первого препятствия.
   // После прыжка на джетпаке или под замедлением — только шаг короля.
   function bishopReachable(g, u) {
     const start = key(u.x, u.y);
@@ -392,7 +392,7 @@
     }
     return prev;
   }
-  // Выстрел Офицера: строго по диагонали, клетки между ним и целью свободны (стены, преграды и любые юниты закрывают)
+  // Выстрел Епископа: строго по диагонали, клетки между ним и целью свободны (стены, преграды и любые юниты закрывают)
   function diagClear(g, a, b) {
     const dx = b.x - a.x, dy = b.y - a.y;
     if (!dx || Math.abs(dx) !== Math.abs(dy)) return false;
@@ -403,7 +403,7 @@
     }
     return true;
   }
-  // Может ли юнит u выстрелить из клетки from по клетке to (дальность, линия огня, диагональ Офицера)
+  // Может ли юнит u выстрелить из клетки from по клетке to (дальность, линия огня, диагональ Епископа)
   function canFireAt(g, u, from, to) {
     const T = UNIT_TYPES[u.type];
     const d = cheb(from, to);
@@ -474,7 +474,7 @@
     if (d < min) return { ok: false, reason: 'Слишком близко' };
     if (d > max) return { ok: false, reason: 'Вне дальности' };
     if (mode !== 'shotgun' && UNIT_TYPES[u.type].bishop) {
-      if (!diagClear(g, u, t)) return { ok: false, reason: t.x !== u.x && Math.abs(t.x - u.x) === Math.abs(t.y - u.y) ? 'Линию закрывает препятствие' : 'Офицер стреляет только по диагонали' };
+      if (!diagClear(g, u, t)) return { ok: false, reason: t.x !== u.x && Math.abs(t.x - u.x) === Math.abs(t.y - u.y) ? 'Линию закрывает препятствие' : 'Епископ стреляет только по диагонали' };
     } else if (!(mode !== 'shotgun' && UNIT_TYPES[u.type].lob) && !hasLOS(g, u, t)) return { ok: false, reason: 'Нет линии огня' };
     if (mode !== 'shotgun' && UNIT_TYPES[u.type].backstab && !UNIT_TYPES[t.type].detect && isBehind(u, t)) {
       // Командира удар в спину не убивает мгновенно: двойной урон, но не больше 6 (у Командира 10 HP)
