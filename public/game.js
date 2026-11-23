@@ -401,7 +401,7 @@
   }
 
   // ---- админка: выдача монет и юнитов, сброс таймеров (права только у ников из ADMIN_NAMES на сервере)
-  const SPECIAL_ICON = { elephant: '🐘', icemage: '❄' };
+  const SPECIAL_ICON = { elephant: '🐘', icemage: '❄', bishop: '♝' };
   function renderAdmin() {
     if (!profile || !profile.admin) return closeModal();
     $('modalBody').innerHTML = `<h2 class="modal-title">🛠 АДМИНКА</h2>
@@ -2025,8 +2025,8 @@
       if (R.canShoot(view, su)) {
         const T = R.UNIT_TYPES[su.type];
         for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-          const d = R.cheb(su, { x, y });
-          if (d < T.minRange || d > R.unitRange(su) || R.isWall(view, x, y) || (!T.lob && !R.hasLOS(view, su, { x, y }))) continue;
+          if (R.isWall(view, x, y) || (x === su.x && y === su.y)) continue;
+          if (T.bishop ? !R.diagClear(view, su, { x, y }) : !R.canFireAt(view, su, su, { x, y })) continue;
           ctx.fillStyle = 'rgba(248,113,113,0.35)';
           ctx.fillRect(fx(x) * C + C / 2 - S, fx(y) * C + C / 2 - S, 2 * S, 2 * S);
         }

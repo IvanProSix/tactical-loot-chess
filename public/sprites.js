@@ -456,6 +456,24 @@ const Sprites = (() => {
       'kkkk........kkkk',
       '................',
     ],
+    bishop: [
+      '.......kk.......',
+      '......kTLk...kk.',
+      '.....kTLTTk.kvvk',
+      '.....kTkTTk.kvvk',
+      '....kTTTkTTk.kk.',
+      '....kyyyyyyk.kYk',
+      '....kssssssk.kYk',
+      '....kskssksk.kYk',
+      '.....kssssk..kYk',
+      '...kkwTwwTwkkkYk',
+      '..kwwwTwwTwwwsYk',
+      '..kwwwTwwTwwkkYk',
+      '..kwwyTwwTywwkYk',
+      '..kwwwTyyTwwwkYk',
+      '..kpwwwwwwwwpkYk',
+      '...kkkkkkkkkk.kk',
+    ],
     turret: [
       '................',
       '................',
@@ -964,7 +982,7 @@ const Sprites = (() => {
 
   const UNIT_TYPES = ['commander', 'assault', 'sniper', 'scout', 'medic', 'grenadier', 'heavy', 'engineer',
     'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret', 'elephant', 'tracker', 'icemage',
-    'necromancer', 'zombie', 'paramedic', 'poisoner', 'skeleton', 'sapper', 'defender', 'barrier'];
+    'necromancer', 'zombie', 'paramedic', 'poisoner', 'skeleton', 'sapper', 'defender', 'barrier', 'bishop'];
   const cache = new Map();
 
   // Нормализация: каждая строка ровно 16 символов (защита от опечаток в матрицах)

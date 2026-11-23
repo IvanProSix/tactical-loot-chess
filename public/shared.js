@@ -60,6 +60,8 @@
       desc: 'Особый юнит — выдаёт только администратор. ТАРАН: ходит сквозь стены, ломая их, и сквозь врагов — враг на пути получает урон и отлетает (если некуда — +1 урона, и слоник останавливается). Атака отбрасывает цель. Способность: трубный рёв — враги вокруг получают 1 урона и отлетают.' },
     icemage: { name: 'Ледяной маг', role: 'special', hp: 6, move: 2, dmg: 1, range: 3, minRange: 1, cost: 3, price: 0, special: true, ability: 'freeze', freezeOnHit: 1,
       desc: 'Особый юнит — выдаёт только администратор. Способность (Действие): ледяной залп — враг в радиусе 4 на линии огня получает 1 урона и не может двигаться 3 своих хода (стрелять может). Перезарядка — 3 хода. Обычная атака замораживает на 1 ход.' },
+    bishop: { name: 'Офицер', role: 'special', hp: 5, move: 1, dmg: 2, range: 7, minRange: 1, cost: 3, price: 0, special: true, bishop: true,
+      desc: 'Особый юнит — выдаёт только администратор. Ходит как шахматный слон: по диагонали на любое число клеток, пока путь свободен, — или на 1 клетку в любую сторону, как король. Стреляет только по диагонали на любую дальность; выстрел останавливает первый же юнит, стена или преграда на линии.' },
     turret: { name: 'Турель', role: 'summon', hp: 2, move: 0, dmg: 1, range: 3, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по самому раненому врагу в радиусе 3.' },
     barrier: { name: 'Преграда', role: 'summon', hp: 4, move: 0, dmg: 0, range: 0, minRange: 1, cost: 0, price: 0, static: true, noShop: true, blocksLOS: true,
@@ -91,15 +93,15 @@
     { name: 'Минное поле', desc: 'В центре спрятаны мины, Сапёр ставит новые. Свой Сапёр их увидит.', enemy: ['sapper', 'grenadier', 'assault', 'sniper'], cmdHp: 12, ai: 'hard', reward: 900,
       mines: [[1, 3], [4, 3], [6, 4], [3, 4], [2, 4]] },
     { name: 'Генерал', desc: 'Элитный отряд и закалённый Командир. Финал основной кампании.', enemy: ['heavy', 'sniper', 'sniper', 'grenadier', 'paramedic'], cmdHp: 14, ai: 'hard', reward: 1000 },
-    { name: 'Враги админа', desc: 'Секретный уровень. Против тебя — личная гвардия админа: Зелёный слоник и Ледяной маг.', secret: true,
-      enemy: ['elephant', 'icemage', 'necromancer', 'heavy', 'sniper'], cmdHp: 15, ai: 'hard', reward: 2000 },
+    { name: 'Враги админа', desc: 'Секретный уровень. Против тебя — личная гвардия админа: Зелёный слоник, Ледяной маг и Офицер.', secret: true,
+      enemy: ['elephant', 'icemage', 'bishop', 'necromancer', 'heavy'], cmdHp: 15, ai: 'hard', reward: 2000 },
   ];
   const AI_LEVELS = { easy: 'Лёгкий', medium: 'Средний', hard: 'Сложный' };
   // Вид снаряда у каждого юнита (влияет только на анимацию и звук)
   const SHOT_KIND = {
     commander: 'bolt', assault: 'burst', sniper: 'sniper', scout: 'dart', medic: 'syringe', grenadier: 'grenade',
     heavy: 'punch', engineer: 'laser', saboteur: 'knife', drone: 'laser', shieldbearer: 'shield', signaller: 'wave',
-    elephant: 'bone', turret: 'laser', tracker: 'scan', icemage: 'ice',
+    elephant: 'bone', bishop: 'bolt', turret: 'laser', tracker: 'scan', icemage: 'ice',
     necromancer: 'skull', zombie: 'claw', paramedic: 'syringe', poisoner: 'poison',
     skeleton: 'bone', defender: 'shield', sapper: 'laser', barrier: 'laser',
   };
@@ -243,6 +245,7 @@
   const MEDKIT_HEAL = 3;
 
   const DIR4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const DIAG = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
   const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
   const key = (x, y) => y * N + x;
@@ -372,9 +375,47 @@
     return isWall(g, x, y) || !!(o && o.side !== u.side);
   }
 
+  // Офицер: шаг короля в любую из 8 сторон или скольжение по диагонали до первого препятствия.
+  // После прыжка на джетпаке или под замедлением — только шаг короля.
+  function bishopReachable(g, u) {
+    const start = key(u.x, u.y);
+    const prev = new Map([[start, -1]]);
+    const free = (x, y) => inBounds(x, y) && !isWall(g, x, y) && !unitAt(g, x, y);
+    for (const [dx, dy] of DIR8) if (free(u.x + dx, u.y + dy)) prev.set(key(u.x + dx, u.y + dy), start);
+    if (u.jetted || u.slowed) return prev;
+    for (const [dx, dy] of DIAG) {
+      let px = u.x, py = u.y;
+      for (let x = u.x + dx, y = u.y + dy; free(x, y); x += dx, y += dy) {
+        if (!prev.has(key(x, y))) prev.set(key(x, y), key(px, py));
+        px = x; py = y;
+      }
+    }
+    return prev;
+  }
+  // Выстрел Офицера: строго по диагонали, клетки между ним и целью свободны (стены, преграды и любые юниты закрывают)
+  function diagClear(g, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (!dx || Math.abs(dx) !== Math.abs(dy)) return false;
+    const sx = Math.sign(dx), sy = Math.sign(dy);
+    for (let i = 1; i < Math.abs(dx); i++) {
+      const x = a.x + sx * i, y = a.y + sy * i;
+      if (isWall(g, x, y) || unitAt(g, x, y)) return false;
+    }
+    return true;
+  }
+  // Может ли юнит u выстрелить из клетки from по клетке to (дальность, линия огня, диагональ Офицера)
+  function canFireAt(g, u, from, to) {
+    const T = UNIT_TYPES[u.type];
+    const d = cheb(from, to);
+    if (d < T.minRange || d > unitRange(u)) return false;
+    if (T.bishop) return diagClear(g, from, to);
+    return !!T.lob || hasLOS(g, from, to);
+  }
+
   // BFS по 4 направлениям. Возвращает Map(key -> prevKey)
   function reachable(g, u) {
     if (UNIT_TYPES[u.type].trample) return trampleReachable(g, u);
+    if (UNIT_TYPES[u.type].bishop) return bishopReachable(g, u);
     const range = moveRange(u);
     const fly = !!UNIT_TYPES[u.type].fly;
     const start = key(u.x, u.y);
@@ -432,7 +473,9 @@
     const d = cheb(u, t);
     if (d < min) return { ok: false, reason: 'Слишком близко' };
     if (d > max) return { ok: false, reason: 'Вне дальности' };
-    if (!(mode !== 'shotgun' && UNIT_TYPES[u.type].lob) && !hasLOS(g, u, t)) return { ok: false, reason: 'Нет линии огня' };
+    if (mode !== 'shotgun' && UNIT_TYPES[u.type].bishop) {
+      if (!diagClear(g, u, t)) return { ok: false, reason: t.x !== u.x && Math.abs(t.x - u.x) === Math.abs(t.y - u.y) ? 'Линию закрывает препятствие' : 'Офицер стреляет только по диагонали' };
+    } else if (!(mode !== 'shotgun' && UNIT_TYPES[u.type].lob) && !hasLOS(g, u, t)) return { ok: false, reason: 'Нет линии огня' };
     if (mode !== 'shotgun' && UNIT_TYPES[u.type].backstab && !UNIT_TYPES[t.type].detect && isBehind(u, t)) {
       // Командира удар в спину не убивает мгновенно: двойной урон, но не больше 6 (у Командира 10 HP)
       return { ok: true, dmg: t.type === 'commander' ? Math.min(dmg * 2, 6) : Math.max(dmg, t.hp), backstab: true };
@@ -562,7 +605,7 @@
     N, TURN_SECONDS, UNIT_TYPES, ITEMS, ITEM_KEYS, SHOTGUN, MEDKIT_HEAL,
     RARITIES, MAX_LUCK, ITEM_STATS, itemStat, rarityName, itemFullName, itemDesc,
     lootLevel, cratesPerDrop, maxCrates, dropInterval, rarityWeights, rarityChances, doubleDropChance,
-    DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS,
+    DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS, diagClear, canFireAt, DIAG,
     BUFF_CAP, rammable, unitDmg, unitRange, isBehind, sniperLocked,
     canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
     CAMPAIGN, AI_LEVELS, ROLES, SQUAD_SAME_MAX, BARRIER, MINES, DETONATE, canJet, SHOT_KIND, FREEZE, RAISE, REVIVE, POISON, revivable, hasReviver, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,

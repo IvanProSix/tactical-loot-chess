@@ -12,10 +12,10 @@ function visibleFoes(g, side) {
 }
 // Может ли юнит u ударить врага f, стоя в клетке cell (для оценки позиции)
 function canHitFrom(g, u, cell, f) {
-  const T = R.UNIT_TYPES[u.type];
-  const d = R.cheb(cell, f);
-  if (d < T.minRange || d > R.unitRange(u) || T.dmg <= 0) return false;
-  return T.lob || R.hasLOS(g, cell, f);
+  if (R.UNIT_TYPES[u.type].dmg <= 0) return false;
+  // для оценки клетки сам юнит «переносится» — свою старую клетку линию не закрывает
+  if (R.UNIT_TYPES[u.type].bishop) { const ox = u.x, oy = u.y; u.x = -9; u.y = -9; const r = R.canFireAt(g, u, cell, f); u.x = ox; u.y = oy; return r; }
+  return R.canFireAt(g, u, cell, f);
 }
 // Сколько врагов могут ударить по клетке (грубая оценка опасности)
 function danger(g, side, cell) {
