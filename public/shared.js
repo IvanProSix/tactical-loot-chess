@@ -43,6 +43,8 @@
       desc: 'Способность (Действие): ставит турель рядом (одна на инженера). Турель сама стреляет в конце вашего хода.' },
     sapper: { name: 'Сапёр', role: 'control', hp: 5, move: 3, dmg: 2, range: 2, minRange: 1, cost: 2, price: 450, ability: 'mines', mineSight: 2,
       desc: 'Видит вражеские мины в радиусе 2 (их видит вся команда) и обезвреживает их, наступив. Способность (Действие): ставит 2 мины рядом, перезарядка 2 хода. Мины из ящиков у него — с двойным запасом.' },
+    liquidator: { name: 'Ликвидатор', role: 'dmg', hp: 5, move: 4, dmg: 3, range: 2, minRange: 1, cost: 3, price: 550, scatter: true,
+      desc: 'Быстрый боец с дробовиком: ходит на 4 клетки, но стреляет только на 1–2. Вплотную — 3 урона, на 2 клетки дробь рассеивается — 2 урона. Дробь задевает врагов рядом с целью на 1 (своих — нет).' },
     saboteur: { name: 'Диверсант', role: 'dmg', hp: 4, move: 3, dmg: 3, range: 1, minRange: 1, cost: 3, price: 600, stealth: true, backstab: true,
       desc: 'Невидим для врага, пока не атакует или не окажется вплотную к вражескому юниту. Удар в спину (с любой из 3 клеток позади цели) убивает мгновенно, а Командиру наносит двойной урон (не больше 6). Спасает только Энергощит.' },
     tracker: { name: 'Следопыт', role: 'scout', hp: 5, move: 3, dmg: 2, range: 2, minRange: 1, cost: 2, price: 400, detect: 2,
@@ -103,7 +105,7 @@
   const SHOT_KIND = {
     commander: 'bolt', assault: 'burst', sniper: 'sniper', scout: 'dart', medic: 'syringe', grenadier: 'grenade',
     heavy: 'punch', engineer: 'laser', saboteur: 'knife', drone: 'laser', shieldbearer: 'shield', signaller: 'wave',
-    elephant: 'bone', bishop: 'bolt', sosud: 'sword', turret: 'laser', tracker: 'scan', icemage: 'ice',
+    elephant: 'bone', liquidator: 'shotgun', bishop: 'bolt', sosud: 'sword', turret: 'laser', tracker: 'scan', icemage: 'ice',
     necromancer: 'skull', zombie: 'claw', paramedic: 'syringe', poisoner: 'poison',
     skeleton: 'bone', defender: 'shield', sapper: 'laser', barrier: 'laser',
   };
@@ -472,6 +474,7 @@
     } else {
       const T = UNIT_TYPES[u.type];
       min = T.minRange; max = unitRange(u); dmg = unitDmg(u);
+      if (T.scatter && cheb(u, t) >= 2) dmg = Math.max(1, dmg - 1); // дробь рассеивается
     }
     const d = cheb(u, t);
     if (d < min) return { ok: false, reason: 'Слишком близко' };

@@ -514,6 +514,24 @@ const Sprites = (() => {
       '................',
       '................',
     ],
+    liquidator: [
+      '................',
+      '.....kkkkkk.....',
+      '....kBbBBbBk....',
+      '....kkvvkvvk....',
+      '....kssssssk....',
+      '....kskssksk....',
+      '....kTTTTTTk....',
+      '.....kTTTTk.....',
+      '...kkTyTTTTkk...',
+      '..kTTTryTTTTTk..',
+      '..kTTTTryTTTTk..',
+      '..ksTTTTryTTsk..',
+      'kGpppppBBbbbbbk.',
+      'kkkkkkkkkkkkkk..',
+      '....kTTkkTTk....',
+      '....kddk.kddk...',
+    ],
     turret: [
       '................',
       '................',
@@ -1022,7 +1040,7 @@ const Sprites = (() => {
 
   const UNIT_TYPES = ['commander', 'assault', 'sniper', 'scout', 'medic', 'grenadier', 'heavy', 'engineer',
     'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret', 'elephant', 'tracker', 'icemage',
-    'necromancer', 'zombie', 'paramedic', 'poisoner', 'skeleton', 'sapper', 'defender', 'barrier', 'bishop', 'sosud'];
+    'necromancer', 'zombie', 'paramedic', 'poisoner', 'skeleton', 'sapper', 'defender', 'barrier', 'bishop', 'sosud', 'liquidator'];
   const cache = new Map();
 
   // Нормализация: каждая строка ровно 16 символов (защита от опечаток в матрицах)

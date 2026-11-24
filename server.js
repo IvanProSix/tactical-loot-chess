@@ -719,8 +719,9 @@ function actAttack(g, side, a) {
   reveal(g, u);
   const T = R.UNIT_TYPES[u.type];
   const kind = R.SHOT_KIND[u.type] || 'laser';
-  ev(g, 'shot', { unitId: u.id, from: { x: u.x, y: u.y }, to: { x: t.x, y: t.y }, kind, side: u.side });
-  addLog(g, `${label(u)} ${T.lob ? 'бросает гранату в' : 'атакует:'} ${label(t)}`, 'atk');
+  // у Ликвидатора выстрел выглядит как дробовик; item передаём, чтобы клиент не «забыл» его предмет
+  ev(g, 'shot', Object.assign({ unitId: u.id, from: { x: u.x, y: u.y }, to: { x: t.x, y: t.y }, kind, side: u.side }, kind === 'shotgun' ? { item: itemCopy(u.item) } : {}));
+  addLog(g, `${label(u)} ${T.lob ? 'бросает гранату в' : T.scatter ? 'стреляет дробью в' : 'атакует:'} ${label(t)}`, 'atk');
   if (T.lob) {
     const tx = t.x, ty = t.y;
     ev(g, 'explosion', { x: tx, y: ty, big: false });
@@ -731,6 +732,12 @@ function actAttack(g, side, a) {
     ev(g, 'backstab', { unitId: t.id, by: u.id });
     addLog(g, `🗡 УДАР В СПИНУ! ${label(u)} атакует ${label(t)} сзади`, 'death');
     damage(g, t, info.dmg, { pierce: true });
+  } else if (T.scatter) {
+    // Ликвидатор: дробь задевает врагов вокруг цели на 1 (своих — нет)
+    const tx = t.x, ty = t.y;
+    const splash = g.units.filter((o) => o.alive && o !== t && o.side !== u.side && !R.isHidden(g, o) && R.cheb(o, { x: tx, y: ty }) === 1);
+    damage(g, t, info.dmg);
+    for (const o of splash) damage(g, o, 1);
   } else {
     damage(g, t, info.dmg);
     absorbKill(g, u, t);
