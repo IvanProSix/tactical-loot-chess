@@ -239,6 +239,8 @@
   function renderAccount() {
     const bar = $('accountBar'), eb = $('econBar');
     $('nameField').classList.toggle('hidden', !!profile);
+    // жёлтая кнопка рулетки рядом с «Создать комнату»: пока не прокручена (у админа — всегда)
+    $('btnRouletteBig').classList.toggle('hidden', !(profile && (profile.roulette || profile.admin)));
     if (!profile) {
       bar.innerHTML = `<div class="acc-guest">Вы играете как гость — монеты, рудник и новые юниты доступны только с аккаунтом.</div>
         <div class="acc-btns"><button id="btnLogin" class="btn small primary">Войти</button><button id="btnRegister" class="btn small">Регистрация</button></div>`;
@@ -250,11 +252,8 @@
     const st = profile.stats;
     bar.innerHTML = `<div class="acc-row"><span class="acc-name">👤 ${esc(profile.name)}</span><span id="coinBox" class="coins">${coinFmt(profile.coins)}</span>
         <span class="acc-stats">🏆 ${st.wins} · ✖ ${st.losses}${st.streak > 1 ? ` · 🔥 ${st.streak}` : ''}</span></div>
-"${profile.roulette ? '<button id="btnRoulette" class="btn daily-btn rl-open">Рулетка новичка — бесплатный боец!</button>' : ''}
-      <div class="acc-btns"><button id="btnShop" class="btn small primary">Магазин</button><button id="btnSquad" class="btn small primary">Отряд</button>${profile.admin ? '<button id="btnAdmin" class="btn small danger">Админ</button><button id="btnRouletteAdm" class="btn small">Рулетка</button>' : ''}<button id="btnChangePass" class="btn small">Пароль</button><button id="btnLogout" class="btn small">Выйти</button></div>`;
+      <div class="acc-btns"><button id="btnShop" class="btn small primary">Магазин</button><button id="btnSquad" class="btn small primary">Отряд</button>${profile.admin ? '<button id="btnAdmin" class="btn small danger">Админ</button>' : ''}<button id="btnChangePass" class="btn small">Пароль</button><button id="btnLogout" class="btn small">Выйти</button></div>`;
     $('btnShop').onclick = () => openModal('shop');
-    if ($('btnRoulette')) $('btnRoulette').onclick = () => openModal('roulette');
-    if ($('btnRouletteAdm')) $('btnRouletteAdm').onclick = () => openModal('roulette');
     if ($('btnAdmin')) $('btnAdmin').onclick = () => openModal('admin');
     $('btnChangePass').onclick = openChangePassword;
     $('btnSquad').onclick = () => openModal('squad');
@@ -434,6 +433,7 @@
   function rlCell(t) {
     return `<div class="rl-cell"${rarityStyle(t)}><span data-sprite="${t}" data-side="blue" data-size="56"></span><span class="rl-name">${esc(R.UNIT_TYPES[t].name)}</span></div>`;
   }
+  $('btnRouletteBig').onclick = () => { Sound.unlock(); openModal('roulette'); };
   function renderRoulette() {
     if (!profile || !(profile.roulette || profile.admin)) { closeModal(); return; }
     let pool = R.SHOP_UNITS.filter((t) => !profile.unlocked.includes(t));
