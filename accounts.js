@@ -309,6 +309,12 @@ function dailyInfo(p) {
   const day = canClaim ? streak + 1 : p.daily.streak; // какой день сейчас забирается/забран
   return { canClaim, day, rewards: ECON.DAILY };
 }
+function pickByRarity(list, rnd) {
+  const w = list.map((t) => (R.RARITIES[R.unitRarity(t)] || R.RARITIES[0]).weight);
+  let x = (rnd != null ? rnd : Math.random()) * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < list.length; i++) { x -= w[i]; if (x < 0) return list[i]; }
+  return list[list.length - 1];
+}
 function claimDaily(p) {
   const d = dailyInfo(p);
   if (!d.canClaim) return { error: 'Награда за сегодня уже получена' };
@@ -316,8 +322,9 @@ function claimDaily(p) {
   const r = ECON.DAILY[d.day - 1];
   let unit = null, coins = 0;
   if (r === 'unit') {
-    const locked = R.SHOP_UNITS.filter((t) => !p.unlocked.includes(t)).sort((a, b) => R.UNIT_TYPES[a].price - R.UNIT_TYPES[b].price);
-    if (locked.length) { unit = locked[0]; p.unlocked.push(unit); } else coins = ECON.DAILY_FALLBACK;
+    // случайный закрытый юнит; шанс — по редкости (как у лута): Обычные выпадают чаще, Легендарные — реже
+    const locked = R.SHOP_UNITS.filter((t) => !p.unlocked.includes(t));
+    if (locked.length) { unit = pickByRarity(locked); p.unlocked.push(unit); } else coins = ECON.DAILY_FALLBACK;
   } else coins = r;
   p.coins += coins;
   save(p);
@@ -450,6 +457,7 @@ function profileView(p) {
 }
 
 module.exports = {
+  pickByRarity,
   rooms: {
     save: (code, data) => store.saveRoom(code, data),
     del: (code) => store.deleteRoom(code),

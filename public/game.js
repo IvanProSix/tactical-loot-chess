@@ -263,7 +263,7 @@
   function renderEcon() {
     if (!profile) return;
     const d = profile.daily, m = profile.mine;
-    const rw = (i) => { const r = d.rewards[i]; return r === 'unit' ? 'юнит' : r + ' 💰'; };
+    const rw = (i) => { const r = d.rewards[i]; return r === 'unit' ? 'случайный юнит' : r + ' 💰'; };
     const daily = d.canClaim
       ? `<button id="btnDaily" class="btn small daily-btn">🎁 Забрать: день ${d.day} — ${rw(d.day - 1)}</button>`
       : `<span class="econ-dim">🎁 День ${d.day}/7 получен. Завтра: ${rw(d.day % 7)}</span>`;
@@ -275,8 +275,9 @@
     const db = $('btnDaily');
     if (db) db.onclick = () => socket.emit('claimDaily', null, (r) => {
       if (r.error) return toast(r.error, 'err');
-      Sound.legendary(false);
-      toast(r.unit ? `🎁 День ${r.day}: открыт юнит «${R.UNIT_TYPES[r.unit].name}»!` : `🎁 День ${r.day}: +${r.coins} 💰`);
+      const rar = r.unit ? R.RARITIES[R.unitRarity(r.unit)] : null;
+      Sound.legendary(!!rar && R.unitRarity(r.unit) >= 3);
+      toast(r.unit ? `🎁 День ${r.day}: выпал ${rar.m.toLowerCase()} юнит «${R.UNIT_TYPES[r.unit].name}»!` : `🎁 День ${r.day}: +${r.coins} 💰`);
       setProfile(r.profile);
       bumpCoins();
     });
@@ -870,7 +871,7 @@
       <li><b>👥 Бой на одном устройстве</b> — соберите отряды обеим командам (доступны все юниты магазина и ваши особые) и играйте вдвоём за одним экраном. Без монет.</li>
       <li><b>🗺 Кампания</b> — 10 уровней и секретный 11-й. За первую победу на уровне — монеты (с аккаунтом).</li>
       <li><b>🎓 Обучение</b> — короткий урок с Клодом, можно перепройти.</li>
-      <li><b>Аккаунт</b>: 🛒 магазин (открыть юнитов), ⚔ отряд (до 5 бойцов на 12 очков, одинаковых — не больше 2), ⛏ рудник (монеты каждый час, до 8 часов), 🎁 ежедневная награда (7 дней подряд — новый юнит), 🔑 смена пароля.</li></ul>`,
+      <li><b>Аккаунт</b>: 🛒 магазин (открыть юнитов), ⚔ отряд (до 5 бойцов на 12 очков, одинаковых — не больше 2), ⛏ рудник (монеты каждый час, до 8 часов), 🎁 ежедневная награда (7 дней подряд — случайный закрытый юнит: чем он реже, тем меньше шанс), 🔑 смена пароля.</li></ul>`,
   };
   function renderCodex() {
     const tabs = [['basics', 'Основы'], ['units', 'Юниты'], ['items', 'Предметы'], ['mech', 'Механики'], ['modes', 'Режимы и аккаунт']];
