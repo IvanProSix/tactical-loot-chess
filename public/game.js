@@ -244,7 +244,7 @@
     const st = profile.stats;
     bar.innerHTML = `<div class="acc-row"><span class="acc-name">👤 ${esc(profile.name)}</span><span id="coinBox" class="coins">${coinFmt(profile.coins)}</span>
         <span class="acc-stats">🏆 ${st.wins} · ✖ ${st.losses}${st.streak > 1 ? ` · 🔥 ${st.streak}` : ''}</span></div>
-      <div class="acc-btns"><button id="btnShop" class="btn small primary">🛒 Магазин</button><button id="btnSquad" class="btn small primary">⚔ Отряд</button>${profile.admin ? '<button id="btnAdmin" class="btn small danger">🛠 Админ</button>' : ''}<button id="btnChangePass" class="btn small">🔑 Пароль</button><button id="btnLogout" class="btn small">Выйти</button></div>`;
+      <div class="acc-btns"><button id="btnShop" class="btn small primary">Магазин</button><button id="btnSquad" class="btn small primary">Отряд</button>${profile.admin ? '<button id="btnAdmin" class="btn small danger">Админ</button>' : ''}<button id="btnChangePass" class="btn small">Пароль</button><button id="btnLogout" class="btn small">Выйти</button></div>`;
     $('btnShop').onclick = () => openModal('shop');
     if ($('btnAdmin')) $('btnAdmin').onclick = () => openModal('admin');
     $('btnChangePass').onclick = openChangePassword;
@@ -265,7 +265,7 @@
     const d = profile.daily, m = profile.mine;
     const rw = (i) => { const r = d.rewards[i]; return r === 'unit' ? 'случайный юнит' : r + ' 💰'; };
     const daily = d.canClaim
-      ? `<button id="btnDaily" class="btn small daily-btn">🎁 Забрать: день ${d.day} — ${rw(d.day - 1)}</button>`
+      ? `<button id="btnDaily" class="btn small daily-btn">Забрать: день ${d.day} — ${rw(d.day - 1)}</button>`
       : `<span class="econ-dim">🎁 День ${d.day}/7 получен. Завтра: ${rw(d.day % 7)}</span>`;
     const left = Math.max(0, m.nextInMs - (Date.now() - profileAt));
     const mm = Math.floor(left / 60000), ss = Math.floor((left % 60000) / 1000);
@@ -361,7 +361,7 @@
   function openChangePassword() {
     modalKind = 'password';
     $('modal').classList.remove('hidden');
-    $('modalBody').innerHTML = `<h2 class="modal-title">🔑 СМЕНА ПАРОЛЯ</h2>
+    $('modalBody').innerHTML = `<h2 class="modal-title">СМЕНА ПАРОЛЯ</h2>
       <form id="passForm" class="auth-form">
         <label class="field">ТЕКУЩИЙ ПАРОЛЬ<input id="passOld" type="password" maxlength="64" autocomplete="current-password"></label>
         <label class="field">НОВЫЙ ПАРОЛЬ<input id="passNew" type="password" maxlength="64" autocomplete="new-password"></label>
@@ -416,13 +416,13 @@
   const SPECIAL_ICON = { elephant: '🐘', icemage: '❄', bishop: '♝', sosud: '⚱' };
   function renderAdmin() {
     if (!profile || !profile.admin) return closeModal();
-    $('modalBody').innerHTML = `<h2 class="modal-title">🛠 АДМИНКА</h2>
+    $('modalBody').innerHTML = `<h2 class="modal-title">АДМИНКА</h2>
       <div class="admin-form">
         <label class="field">ИГРОК (пусто — вы)<input id="admName" maxlength="16" spellcheck="false" placeholder="${esc(profile.name)}"></label>
         <button id="admFind" class="btn small">Найти</button>
       </div>
       <div id="admInfo" class="admin-info econ-dim">Введите ник или оставьте пустым, чтобы управлять своим аккаунтом.</div>
-      <h3>// МОНЕТЫ</h3>
+      <h3>Монеты</h3>
       <div class="btn-row admin-row">
         <button class="btn small" data-coins="1000">+1 000</button>
         <button class="btn small" data-coins="10000">+10 000</button>
@@ -430,17 +430,17 @@
         <input id="admAmount" class="code-input admin-amount" type="number" placeholder="сумма">
         <button id="admGive" class="btn small primary">Выдать</button>
       </div>
-      <h3>// ЮНИТЫ И ТАЙМЕРЫ</h3>
+      <h3>Юниты и таймеры</h3>
       <div class="btn-row admin-row">
         <button class="btn small primary" data-op="unlockAll">Открыть все юниты</button>
         <button class="btn small" data-op="resetTimers">Заполнить рудник + сбросить награду</button>
       </div>
-      <h3>// ОСОБЫЕ ЮНИТЫ</h3>
+      <h3>Особые юниты</h3>
       ${R.SPECIAL_UNITS.map((u) => `<div class="btn-row admin-row"><button class="btn small primary" data-grant="${u}">${SPECIAL_ICON[u] || '★'} Выдать: ${R.UNIT_TYPES[u].name}</button><button class="btn small danger" data-revoke="${u}">Забрать</button></div>`).join('')}
-      <h3>// ДОСТУП</h3>
-      <div class="btn-row admin-row"><button class="btn small danger" id="admReset">🔑 Сбросить пароль игроку</button></div>
+      <h3>Доступ</h3>
+      <div class="btn-row admin-row"><button class="btn small danger" id="admReset">Сбросить пароль игроку</button></div>
       <div id="admTemp" class="admin-temp hidden"></div>
-      <h3>// УРОВЕНЬ РУДНИКА</h3>
+      <h3>Уровень рудника</h3>
       <div class="btn-row admin-row">${[1, 2, 3, 4, 5].map((l) => `<button class="btn small" data-mine="${l}">${l}</button>`).join('')}</div>
       <div class="econ-dim" style="margin-top:12px">Отрицательная сумма забирает монеты. Все действия записываются в лог сервера.</div>`;
     const run = (d) => {
@@ -493,9 +493,9 @@
         ${own ? '<div class="owned-tag">✔ Открыт</div>' : `<button class="btn small ${can ? 'primary' : ''}" data-buy="${t}" ${can ? '' : 'disabled'}>${T.price} 💰</button>`}
       </div>`;
     }).join('');
-    $('modalBody').innerHTML = `<h2 class="modal-title">🛒 МАГАЗИН <span class="coins">${coinFmt(profile.coins)}</span></h2>
-      <h3>// ЮНИТЫ</h3><div class="shop-list">${units}</div>
-      <h3>// РУДНИК</h3>
+    $('modalBody').innerHTML = `<h2 class="modal-title">МАГАЗИН <span class="coins">${coinFmt(profile.coins)}</span></h2>
+      <h3>Юниты</h3><div class="shop-list">${units}</div>
+      <h3>Рудник</h3>
       <div class="shop-item"><div class="mine-icon">⛏</div>
         <div class="shop-info"><div class="shop-name">Рудник — уровень ${m.level}</div>
           <div class="shop-desc">Добывает ${m.rate} 💰 в час, копит до ${profile.mine.cap} 💰 (8 часов).${m.upgradePrice ? ` Следующий уровень: ${[20, 35, 55, 80, 120][m.level]} 💰/ч.` : ' Максимальный уровень.'}</div></div>
@@ -543,10 +543,10 @@
         <span data-sprite="${t}" data-size="40"></span><span class="sq-pname">${T.name}<br><small style="color:${(R.ROLES[T.role] || {}).color || '#999'}">${(R.ROLES[T.role] || {}).icon || ''} ${(R.ROLES[T.role] || {}).name || ''}</small></span><span class="cost-tag">${T.cost}</span></button>`;
     }).join('');
     const locked = R.SHOP_UNITS.filter((t) => !profile.unlocked.includes(t)).length;
-    $('modalBody').innerHTML = `<h2 class="modal-title">⚔ ОТРЯД</h2>
+    $('modalBody').innerHTML = `<h2 class="modal-title">ОТРЯД</h2>
       <div class="budget"><span>Очки отряда: <b>${cost}</b> / ${R.SQUAD_BUDGET}</span><div class="budget-bar"><div style="width:${pct}%"></div></div></div>
       <div class="sq-members">${members}${empties}</div>
-      <h3>// ДОСТУПНЫЕ БОЙЦЫ (нажмите, чтобы добавить)</h3>
+      <h3>Доступные бойцы (нажмите, чтобы добавить)</h3>
       <div class="sq-pool">${pool}</div>
       ${locked ? `<div class="econ-dim">Ещё ${locked} юнит(ов) можно открыть в магазине.</div>` : ''}
       <div id="sqErr" class="auth-err">${err || ''}</div>
@@ -604,7 +604,7 @@
       el: 'btnEndTurn', done: () => view.round >= 2 && view.turn === 'blue',
     },
     {
-      text: 'Соперник походил — здесь это мишени, они стоят на месте. В настоящем бою на ход даётся 60 секунд. Отменить выбор — ПКМ или Esc, на телефоне — кнопка «Отмена». Кнопка 📖 рядом открывает справочник по всем юнитам и механикам.',
+      text: 'Соперник походил — здесь это мишени, они стоят на месте. В настоящем бою на ход даётся 60 секунд. Отменить выбор — ПКМ или Esc, на телефоне — кнопка «Отмена». Кнопка «Справка» рядом открывает справочник по всем юнитам и механикам.',
       next: true, el: 'btnCodexGame',
     },
     {
@@ -612,7 +612,7 @@
       hl: () => tCell(tUnit('r0')), done: () => !!view.winner,
     },
     {
-      text: 'Победа! 🎉 Ты готов к бою. Дальше: 🗺 Кампания — 10 уровней против ИИ (и секретный 11-й), 🤖 бой с ИИ, ▶ комната для игры с другом. С аккаунтом — монеты, магазин юнитов, свой отряд, рудник и награды. Всё о юнитах, предметах и механиках — в «📖 Справочнике» (кнопка 📖 есть и в бою).',
+      text: 'Победа! Ты готов к бою. Дальше: «Кампания» — 10 уровней против ИИ (и секретный 11-й), бой с ИИ, комната для игры с другом. С аккаунтом — монеты, магазин юнитов, свой отряд, рудник и награды. Всё о юнитах, предметах и механиках — в «Справочнике» (кнопка «Справка» есть и в бою).',
       final: true,
     },
   ];
@@ -697,7 +697,7 @@
   };
   $('tutorAgain').onclick = () => { tutorStop(); socket.emit('rematch'); };
   $('tutorSkip').onclick = () => {
-    if (!confirm('Пропустить обучение? Вернуться к нему можно кнопкой «🎓 Обучение» в меню.')) return;
+    if (!confirm('Пропустить обучение? Вернуться к нему можно кнопкой «Обучение» в меню.')) return;
     tutorMarkDone(); tutorStop(); socket.emit('leaveRoom');
   };
   $('tutorText').onclick = () => {
@@ -728,9 +728,9 @@
       ['medium', 'Средний', 'Разумный противник: добивает раненых, пользуется способностями.', '#facc15'],
       ['hard', 'Сложный', 'Точный и агрессивный, давит на Командира. Его отряд дороже твоего.', '#f87171'],
     ];
-    $('modalBody').innerHTML = `<h2 class="modal-title">🤖 ПРОТИВ ИИ</h2>
+    $('modalBody').innerHTML = `<h2 class="modal-title">ПРОТИВ ИИ</h2>
       <div class="econ-dim" style="margin-bottom:10px">Ты воюешь своим отрядом${profile ? '' : ' (гость — стандартным)'}, ИИ собирает случайный отряд. Монеты за бой с ИИ не начисляются — их дают уровни кампании.</div>
-      <div class="ai-levels">${lv.map(([k, n, d, c]) => `<button class="ai-card" data-ai="${k}" style="border-color:${c}"><b style="color:${c}">${n}</b><span>${d}</span></button>`).join('')}</div>`;
+      <div class="ai-levels">${lv.map(([k, n, d, c]) => `<button class="ai-card" data-ai="${k}" style="--c:${c}"><b style="color:${c}">${n}</b><span>${d}</span></button>`).join('')}</div>`;
     for (const b of $('modalBody').querySelectorAll('[data-ai]')) b.onclick = () => { Sound.unlock(); closeModal(); socket.emit('vsAI', { level: b.dataset.ai }); };
   }
   // ---- Бой на одном устройстве: игрок собирает отряды обеим командам
@@ -761,7 +761,7 @@
     const side = hs.side, sq = hs[side];
     const errs = { blue: R.squadError(hs.blue, hsAllowed()), red: R.squadError(hs.red, hsAllowed()) };
     const cost = R.squadCost(sq);
-    const tab = (k, n, c) => `<button class="hs-tab${side === k ? ' on' : ''}" data-hs-side="${k}" style="--c:${c}">${n}<small>${R.squadCost(hs[k])}/${R.SQUAD_BUDGET} оч.${errs[k] ? ' ⚠' : ''}</small></button>`;
+    const tab = (k, n, c) => `<button class="hs-tab${side === k ? ' on' : ''}" data-hs-side="${k}" style="--c:${c}"><span>${n}</span><small>${R.squadCost(hs[k])}/${R.SQUAD_BUDGET} оч.${errs[k] ? ' ⚠' : ''}</small></button>`;
     const members = ['commander'].concat(sq).map((t, i) => `<div class="sq-member${i ? ' rar-frame' : ''}"${i ? rarityStyle(t) : ''}>
         <span data-sprite="${t}" data-side="${side}" data-size="48"></span><div class="sq-name">${R.UNIT_TYPES[t].name}</div>
         <div class="sq-cost">${i ? R.UNIT_TYPES[t].cost + ' оч.' : 'всегда'}</div>
@@ -775,13 +775,13 @@
         <span data-sprite="${t}" data-side="${side}" data-size="40"></span><span class="sq-pname">${T.name}<br><small style="color:${role.color || '#999'}">${role.icon || ''} ${role.name || ''}</small></span><span class="cost-tag">${T.cost}</span></button>`;
     }).join('');
     const pct = Math.min(100, (cost / R.SQUAD_BUDGET) * 100);
-    $('modalBody').innerHTML = `<h2 class="modal-title">⚔ БОЙ НА ОДНОМ УСТРОЙСТВЕ</h2>
+    $('modalBody').innerHTML = `<h2 class="modal-title">БОЙ НА ОДНОМ УСТРОЙСТВЕ</h2>
       <div class="econ-dim" style="margin-bottom:10px">Соберите отряды обеим командам и играйте вдвоём за одним экраном, передавая ход. Здесь доступны все юниты магазина${profile && R.SPECIAL_UNITS.some((t) => profile.unlocked.includes(t)) ? ' и ваши особые' : ''}. Монеты и награды за этот бой не начисляются.</div>
-      <div class="hs-tabs">${tab('blue', '🔵 Синие', '#3b82f6')}${tab('red', '🔴 Красные', '#ef4444')}</div>
+      <div class="hs-tabs">${tab('blue', '<i class="team-sq"></i>Синие', '#3b82f6')}${tab('red', '<i class="team-sq"></i>Красные', '#ef4444')}</div>
       <div class="budget"><span>Очки отряда ${side === 'blue' ? 'Синих' : 'Красных'}: <b>${cost}</b> / ${R.SQUAD_BUDGET}</span><div class="budget-bar"><div style="width:${pct}%"></div></div></div>
       <div class="sq-members">${members}${empties}</div>
-      <div class="btn-row hs-tools"><button id="hsRand" class="btn small">🎲 Случайный</button><button id="hsCopy" class="btn small">⇄ Как у ${side === 'blue' ? 'Красных' : 'Синих'}</button>${profile ? '<button id="hsMine" class="btn small">⚔ Мой отряд</button>' : ''}<button id="hsClear" class="btn small">Очистить</button></div>
-      <h3>// БОЙЦЫ (нажмите, чтобы добавить ${side === 'blue' ? 'Синим' : 'Красным'})</h3>
+      <div class="btn-row hs-tools"><button id="hsRand" class="btn small">Случайный</button><button id="hsCopy" class="btn small">Как у ${side === 'blue' ? 'Красных' : 'Синих'}</button>${profile ? '<button id="hsMine" class="btn small">Мой отряд</button>' : ''}<button id="hsClear" class="btn small">Очистить</button></div>
+      <h3>Бойцы (нажмите, чтобы добавить ${side === 'blue' ? 'синим' : 'красным'})</h3>
       <div class="sq-pool">${pool}</div>
       <div class="auth-err">${errs.blue ? 'Синие: ' + esc(errs.blue) : errs.red ? 'Красные: ' + esc(errs.red) : ''}</div>
       <div class="btn-row"><button id="hsGo" class="btn primary" ${errs.blue || errs.red ? 'disabled' : ''}>▶ В бой</button></div>`;
@@ -806,7 +806,7 @@
         <ul class="codex-list">${c.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>`).join('');
   }
   function renderChangelog() {
-    $('modalBody').innerHTML = `<h2 class="modal-title">📜 ЧТО НОВОГО</h2><div class="cl-list">${changelogHtml()}</div>`;
+    $('modalBody').innerHTML = `<h2 class="modal-title">ЧТО НОВОГО</h2><div class="cl-list">${changelogHtml()}</div>`;
     try { localStorage.setItem(VER_KEY, GAME_VERSION); } catch (e) { /* нет хранилища */ }
     updateVersionTag();
   }
@@ -839,7 +839,7 @@
           <div class="lv-rew">Награда за первую победу: ${L.reward} 💰${profile ? '' : ' (с аккаунтом)'} · Командир врага: ${L.cmdHp} HP</div></div>
         ${st}</button>`;
     }).join('');
-    $('modalBody').innerHTML = `<h2 class="modal-title">🗺 КАМПАНИЯ <span class="econ-dim">пройдено ${Math.min(done, R.CAMPAIGN.length)} из ${R.CAMPAIGN.length}</span></h2>
+    $('modalBody').innerHTML = `<h2 class="modal-title">КАМПАНИЯ <span class="econ-dim">пройдено ${Math.min(done, R.CAMPAIGN.length)} из ${R.CAMPAIGN.length}</span></h2>
       <div class="econ-dim" style="margin-bottom:10px">Ты воюешь своим отрядом из «⚔ Отряда». Каждый уровень открывает следующий.${profile ? '' : ' Гость: прогресс хранится на этом устройстве.'}</div>
       <div class="lv-list">${cards}</div>`;
     mountSprites($('modalBody'));
@@ -899,7 +899,7 @@
   function renderCodex() {
     const tabs = [['basics', 'Основы'], ['units', 'Юниты'], ['items', 'Предметы'], ['mech', 'Механики'], ['modes', 'Режимы и аккаунт'], ['news', `Обновления v${GAME_VERSION}`]];
     const body = codexTab === 'units' ? codexUnits() : codexTab === 'items' ? codexItems() : codexTab === 'news' ? `<div class="cl-list">${changelogHtml()}</div>` : CODEX_TEXT[codexTab];
-    $('modalBody').innerHTML = `<h2 class="modal-title">📖 СПРАВОЧНИК</h2>
+    $('modalBody').innerHTML = `<h2 class="modal-title">СПРАВОЧНИК</h2>
       <div class="codex-tabs">${tabs.map(([k, n]) => `<button class="btn small${k === codexTab ? ' primary' : ''}" data-tab="${k}">${n}</button>`).join('')}</div>
       <div class="codex-body ${codexTab === 'units' || codexTab === 'items' ? 'shop-list' : ''}">${body}</div>`;
     mountSprites($('modalBody'));
@@ -1422,17 +1422,12 @@
   }
 
   // ------------------------------------------------------------ главное меню
-  const SUBTITLE = '> пошаговая тактика · лут · оружие · онлайн';
+  const SUBTITLE = 'Пошаговая тактика с лутом и оружием';
   let typeTimer = null;
   function typeSubtitle() {
     const el = $('typeLine');
     clearInterval(typeTimer);
-    let i = 0;
-    el.textContent = '';
-    typeTimer = setInterval(() => {
-      el.textContent = SUBTITLE.slice(0, ++i);
-      if (i >= SUBTITLE.length) clearInterval(typeTimer);
-    }, 35);
+    el.textContent = SUBTITLE;
   }
   function renderMenu() {
     const ni = $('nameInput');
@@ -1669,7 +1664,7 @@
     const el = $('unitCard');
     const u = selUnit();
     if (!view || !u) {
-      el.innerHTML = `<div class="help"><h4>// УПРАВЛЕНИЕ</h4>
+      el.innerHTML = `<div class="help"><h4>Управление</h4>
         <b>ЛКМ</b> по своему юниту — выбрать.<br>
         <b>ЛКМ</b> по подсвеченной клетке — движение.<br>
         <b>ЛКМ</b> по врагу в красной рамке — атака.<br>

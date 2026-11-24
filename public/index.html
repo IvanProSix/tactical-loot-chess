@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#070a10">
+  <meta name="theme-color" content="#10141c">
   <title>Tactical Loot Chess</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="scanlines"></div>
+  
   <button id="btnMute" class="mute-btn" title="Звук (M)">🔊</button>
   <div id="connState" class="conn-state hidden">Нет связи с сервером — переподключаемся… Матч сохранён, он продолжится с того же хода.</div>
 
@@ -18,15 +18,15 @@
   <section id="menu" class="screen menu-screen">
     <div class="menu-box panel enter">
       <button id="btnVersion" class="ver-tag" title="Что нового — список изменений">v—</button>
-      <h1 class="logo" data-text="TACTICAL"><span class="logo-main glitch" data-text="TACTICAL">TACTICAL</span><span class="logo-sub">LOOT CHESS</span></h1>
-      <p class="subtitle"><span id="typeLine"></span><span class="caret">_</span></p>
+      <h1 class="logo"><span class="logo-main">TACTICAL</span><span class="logo-sub">LOOT CHESS</span></h1>
+      <p class="subtitle"><span id="typeLine"></span></p>
 
       <div id="tutorInvite" class="tutor-invite hidden">
         <canvas id="inviteAvatar" class="tutor-avatar small"></canvas>
         <div class="tutor-invite-body">
           <div class="tutor-name">Клод</div>
           <div class="tutor-invite-text">Привет! Впервые здесь? Покажу, как играть, — займёт пару минут.</div>
-          <div class="tutor-btns"><button id="inviteGo" class="btn small primary">🎓 Пройти обучение</button><button id="inviteNo" class="btn small">Не сейчас</button></div>
+          <div class="tutor-btns"><button id="inviteGo" class="btn small primary">Пройти обучение</button><button id="inviteNo" class="btn small">Не сейчас</button></div>
         </div>
       </div>
       <div id="accountBar" class="account-bar enter" style="--d:.3s"></div>
@@ -37,30 +37,30 @@
       </label>
 
       <div class="menu-actions enter" style="--d:.5s">
-        <button id="btnCreate" class="btn primary big">▶ Создать комнату</button>
+        <button id="btnCreate" class="btn primary big">Создать комнату</button>
         <div class="join-row">
-          <button id="btnVsAI" class="btn">🤖 Против ИИ</button>
-          <button id="btnCampaign" class="btn">🗺 Кампания</button>
+          <button id="btnVsAI" class="btn">Против ИИ</button>
+          <button id="btnCampaign" class="btn">Кампания</button>
         </div>
         <div class="join-row">
           <input id="codeInput" class="code-input" maxlength="4" placeholder="КОД" autocomplete="off" spellcheck="false" autocapitalize="characters" inputmode="text">
           <button id="btnJoin" class="btn">Войти</button>
         </div>
-        <button id="btnSolo" class="btn">👥 Бой на одном устройстве</button>
+        <button id="btnSolo" class="btn">Бой на одном устройстве</button>
         <div class="join-row">
-          <button id="btnTutorial" class="btn">🎓 Обучение</button>
-          <button id="btnCodex" class="btn">📖 Справочник</button>
+          <button id="btnTutorial" class="btn">Обучение</button>
+          <button id="btnCodex" class="btn">Справочник</button>
         </div>
       </div>
 
       <div class="menu-cols enter" style="--d:.65s">
         <div class="open-rooms">
-          <h3>// ОТКРЫТЫЕ КОМНАТЫ</h3>
+          <h3>Открытые комнаты</h3>
           <ul id="roomList" class="room-list"></ul>
           <div id="onlineInfo" class="online-info"></div>
         </div>
         <details class="rules" open>
-          <summary><h3>// ПРАВИЛА</h3></summary>
+          <summary><h3>Правила</h3></summary>
           <ul>
             <li>Цель — уничтожить вражеского <b>Командира</b>.</li>
             <li>За ход можно задействовать <b>2 разных юнита</b>; у каждого — <b>1 Движение</b> и <b>1 Действие</b>.</li>
@@ -83,7 +83,7 @@
           <div id="roomCode" class="room-code">----</div>
         </div>
         <div class="room-btns">
-          <button id="btnCopy" class="btn primary">⧉ Скопировать ссылку</button>
+          <button id="btnCopy" class="btn primary">Скопировать ссылку</button>
           <button id="btnLeave" class="btn small">← Выйти</button>
         </div>
       </div>
@@ -136,11 +136,11 @@
       <div id="playersBox" class="players-box"></div>
       <div id="lootInfo" class="loot-info" title="Уровень лута растёт по ходу матча. Удача (🍀) повышает шанс редкого лута."></div>
       <div class="hud-buttons">
-        <button id="btnCancel" class="btn small" title="Отменить выбор (ПКМ / Esc)">✕ Отмена</button>
-        <button id="btnCodexGame" class="btn small" title="Справочник">📖</button>
+        <button id="btnCancel" class="btn small" title="Отменить выбор (ПКМ / Esc)">Отмена</button>
+        <button id="btnCodexGame" class="btn small" title="Справочник">Справка</button>
         <button id="btnEndTurn" class="btn primary">Завершить ход ⏎</button>
         <button id="btnSurrender" class="btn danger small">Сдаться</button>
-        <button id="btnShowOver" class="btn small primary hidden">🏆 Итоги</button>
+        <button id="btnShowOver" class="btn small primary hidden">Итоги</button>
         <button id="btnLeaveGame" class="btn small hidden">← В меню</button>
       </div>
     </header>
@@ -154,7 +154,7 @@
       <aside class="side">
         <div id="unitCard" class="panel unit-card"></div>
         <div class="panel log-panel">
-          <h3>// БОЕВОЙ ЛОГ</h3>
+          <h3>Журнал боя</h3>
           <div id="log" class="log"></div>
         </div>
       </aside>
