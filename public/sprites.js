@@ -17,13 +17,13 @@ const Sprites = (() => {
     j: '#dedede', X: '#5124d6', Z: '#3b1a7a', W: '#a78bfa',
   };
   const TEAMS = {
-    blue: { T: '#3b82f6', t: '#1d4ed8', L: '#93c5fd' },
-    red: { T: '#ef4444', t: '#b91c1c', L: '#fca5a5' },
-    neutral: { T: '#9ca3af', t: '#4b5563', L: '#e5e7eb' },
+    blue: { T: '#3b82f6', t: '#1d4ed8', L: '#93c5fd', $: '#0b1d5e' }, // $ — шарф Сосуда
+    red: { T: '#ef4444', t: '#b91c1c', L: '#fca5a5', $: '#e3262b' },
+    neutral: { T: '#9ca3af', t: '#4b5563', L: '#e5e7eb', $: '#fb007e' },
   };
 
   // Собственные палитры авторских спрайтов (символы не пересекаются с общей палитрой)
-  const SPAL = {"sosud": {"1": "#5b2bd6", "2": "#2a1066", "3": "#8f6cf5", "7": "#4fd6f5", "8": "#d6fbff"}, "p_sword": {"0": "#3f3f74", "1": "#c4cfe6", "2": "#bac6de", "3": "#d6e3ff", "4": "#cbdbfc", "5": "#c0cee9", "6": "#a2adc5", "7": "#b4c2de", "8": "#ffffff"}};
+  const SPAL = {"sosud": {"0": "#4d00ff", "1": "#4900f4", "2": "#4600e9", "3": "#4700ed", "4": "#c5b4f0", "5": "#b0a0da", "6": "#afa2d3", "7": "#74e7ff", "8": "#90ecff", "9": "#86d8e9", "@": "#3700b6", "#": "#3100a4", "%": "#9eeeff", "&": "#7ad3e6", "*": "#73c3d3", "+": "#3d00cc", "=": "#a99ccc", "?": "#9e91c1"}, "p_sword": {"0": "#3f3f74", "1": "#c4cfe6", "2": "#bac6de", "3": "#d6e3ff", "4": "#cbdbfc", "5": "#c0cee9", "6": "#a2adc5", "7": "#b4c2de", "8": "#ffffff"}};
 
   const DATA = {
     commander: [
@@ -479,22 +479,22 @@ const Sprites = (() => {
     ],
     // Сосуд и его меч — авторские рисунки (Aseprite), цвета — в SPAL
     sosud: [
-      '......kkkk......',
-      '.....k3311k.....',
-      '....k331111k....',
-      '....k122221k....',
-      '....k282282k....',
-      '...kk122221kk...',
-      '..kLTTk11kTTtk..',
-      '..kTTk7887kTtk..',
-      '.k1kTk7887kTk1k.',
-      '.k1kTTk77kTTk1k.',
-      '.kSkyyyyyyyykSk.',
-      '..kkTtTTTTtTkk..',
-      '...kTtTLLTtTk...',
-      '...k1TtTTtT1k...',
-      '...k22kkkk22k...',
-      '....kkk..kkk....',
+      '.....0001111....',
+      '...0001122233.3.',
+      '..001122222223..',
+      '..0122222222223.',
+      '.0122422222222..',
+      '..124562622222..',
+      '..127788829222..',
+      '.0227888889222@.',
+      '0522288899222@5#',
+      '.2552$$$$$$255##',
+      '2%22552222$5@@&#',
+      '2%8225555552@**#',
+      '.22222222222@##.',
+      '....+=5++5=?#...',
+      '.....+?+@??#....',
+      '...+@@@@#####...',
     ],
     p_sword: [
       '................',
@@ -1070,7 +1070,21 @@ const Sprites = (() => {
     return 0;
   }
 
-  function bake(rows, team, mode, flat, own) {
+  // Объём для авторского рисунка без контура (форма та же): свет слева-сверху, тень справа-снизу, тёмная кромка по силуэту
+  const VOLUME = new Set(['sosud']);
+  function volume(rows, px, py) {
+    const row = rows[py];
+    let a = 16, b = -1;
+    for (let i = 0; i < 16; i++) if (row[i] !== '.') { if (a > i) a = i; b = i; }
+    const t = b > a ? (px - a) / (b - a) : 0.5;            // 0 — левый край, 1 — правый
+    let f = 0.28 - t * 0.6 - (py / 15) * 0.12;             // цилиндрическое освещение
+    const at = (x, y) => (rows[y] && rows[y][x]) || '.';
+    if (at(px + 1, py) === '.' || at(px, py + 1) === '.') f -= 0.3;       // кромка в тени
+    else if (at(px - 1, py) === '.' || at(px, py - 1) === '.') f += 0.12; // кромка на свету
+    return Math.max(-0.6, Math.min(0.4, f));
+  }
+
+  function bake(rows, team, mode, flat, own, vol) {
     const c = document.createElement('canvas');
     c.width = 16; c.height = 16;
     const x = c.getContext('2d');
@@ -1080,7 +1094,8 @@ const Sprites = (() => {
         const ch = rows[py][px];
         if (ch === '.') continue;
         let col = (own && own[ch]) || tp[ch] || PAL[ch] || '#ff00ff';
-        if (!flat && ch !== 'k' && col[0] === '#' && col.length === 7) { const e = edge(rows, px, py); if (e) col = shade(col, e); }
+        if (vol && mode !== 'flash') { const f = volume(rows, px, py); if (f) col = shade(col, f); }
+        else if (!flat && ch !== 'k' && col[0] === '#' && col.length === 7) { const e = edge(rows, px, py); if (e) col = shade(col, e); }
         if (mode === 'flash') col = ch === 'k' ? '#ffffff' : '#ffffff';
         if (mode === 'ghost') col = ch === 'k' ? '#0b1220' : col;
         x.fillStyle = col;
@@ -1095,7 +1110,7 @@ const Sprites = (() => {
       const rows = norm(raw, name);
       const teams = UNIT_TYPES.includes(name) ? ['blue', 'red', 'neutral'] : ['neutral'];
       for (const t of teams) {
-        cache.set(`${name}|${t}|`, bake(rows, t, '', NO_SHADE.has(name), SPAL[name]));
+        cache.set(`${name}|${t}|`, bake(rows, t, '', NO_SHADE.has(name), SPAL[name], VOLUME.has(name)));
         cache.set(`${name}|${t}|flash`, bake(rows, t, 'flash', true, SPAL[name]));
       }
     }
