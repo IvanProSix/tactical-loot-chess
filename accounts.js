@@ -334,11 +334,14 @@ function claimDaily(p) {
 
 // Рулетка новичка: один раз на аккаунт, случайный закрытый юнит магазина (шанс — по редкости)
 function spinRoulette(p) {
-  if (!p.roulette) return { error: 'Рулетка уже прокручена' };
-  const locked = R.SHOP_UNITS.filter((t) => !p.unlocked.includes(t));
+  const admin = isAdmin(p); // админ крутит сколько угодно (для проверки), монет за повтор не получает
+  if (!p.roulette && !admin) return { error: 'Рулетка уже прокручена' };
+  let locked = R.SHOP_UNITS.filter((t) => !p.unlocked.includes(t));
+  if (!locked.length && admin) locked = R.SHOP_UNITS.slice(); // всё открыто — крутим по всем, без выдачи
   p.roulette = false;
   let unit = null, coins = 0;
-  if (locked.length) { unit = pickByRarity(locked); p.unlocked.push(unit); } else { coins = ECON.DAILY_FALLBACK; p.coins += coins; }
+  if (locked.length) { unit = pickByRarity(locked); if (!p.unlocked.includes(unit)) p.unlocked.push(unit); }
+  else { coins = ECON.DAILY_FALLBACK; p.coins += coins; }
   save(p);
   console.log(`[acc] рулетка: ${p.name} → ${unit || coins + ' монет'}`);
   return { unit, coins, pool: locked };

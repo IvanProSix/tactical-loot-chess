@@ -251,9 +251,10 @@
     bar.innerHTML = `<div class="acc-row"><span class="acc-name">👤 ${esc(profile.name)}</span><span id="coinBox" class="coins">${coinFmt(profile.coins)}</span>
         <span class="acc-stats">🏆 ${st.wins} · ✖ ${st.losses}${st.streak > 1 ? ` · 🔥 ${st.streak}` : ''}</span></div>
 "${profile.roulette ? '<button id="btnRoulette" class="btn daily-btn rl-open">Рулетка новичка — бесплатный боец!</button>' : ''}
-      <div class="acc-btns"><button id="btnShop" class="btn small primary">Магазин</button><button id="btnSquad" class="btn small primary">Отряд</button>${profile.admin ? '<button id="btnAdmin" class="btn small danger">Админ</button>' : ''}<button id="btnChangePass" class="btn small">Пароль</button><button id="btnLogout" class="btn small">Выйти</button></div>`;
+      <div class="acc-btns"><button id="btnShop" class="btn small primary">Магазин</button><button id="btnSquad" class="btn small primary">Отряд</button>${profile.admin ? '<button id="btnAdmin" class="btn small danger">Админ</button><button id="btnRouletteAdm" class="btn small">Рулетка</button>' : ''}<button id="btnChangePass" class="btn small">Пароль</button><button id="btnLogout" class="btn small">Выйти</button></div>`;
     $('btnShop').onclick = () => openModal('shop');
     if ($('btnRoulette')) $('btnRoulette').onclick = () => openModal('roulette');
+    if ($('btnRouletteAdm')) $('btnRouletteAdm').onclick = () => openModal('roulette');
     if ($('btnAdmin')) $('btnAdmin').onclick = () => openModal('admin');
     $('btnChangePass').onclick = openChangePassword;
     $('btnSquad').onclick = () => openModal('squad');
@@ -434,15 +435,16 @@
     return `<div class="rl-cell"${rarityStyle(t)}><span data-sprite="${t}" data-side="blue" data-size="56"></span><span class="rl-name">${esc(R.UNIT_TYPES[t].name)}</span></div>`;
   }
   function renderRoulette() {
-    if (!profile || !profile.roulette) { closeModal(); return; }
-    const pool = R.SHOP_UNITS.filter((t) => !profile.unlocked.includes(t));
+    if (!profile || !(profile.roulette || profile.admin)) { closeModal(); return; }
+    let pool = R.SHOP_UNITS.filter((t) => !profile.unlocked.includes(t));
+    if (!pool.length && profile.admin) pool = R.SHOP_UNITS.slice(); // у админа всё открыто — крутит по всем
     const strip = Array.from({ length: RL_N }, () => rlPick(pool));
     const odds = R.RARITIES.map((r, i) => {
       const n = pool.filter((t) => R.unitRarity(t) === i).length;
       return n ? `<span style="color:${r.color}">${r.m}: ${n}</span>` : '';
     }).filter(Boolean).join(' · ');
     $('modalBody').innerHTML = `<h2 class="modal-title">Рулетка новичка</h2>
-      <p class="econ-dim rl-text">Подарок за регистрацию: прокрутите рулетку и заберите случайного бойца из магазина насовсем. Крутится только один раз. Чем реже боец, тем меньше шанс.</p>
+      ${profile.admin && !profile.roulette ? '<p class="econ-dim rl-text" style="color:var(--red)">Админ: можно крутить сколько угодно.</p>' : ''}<p class="econ-dim rl-text">Подарок за регистрацию: прокрутите рулетку и заберите случайного бойца из магазина насовсем. Крутится только один раз. Чем реже боец, тем меньше шанс.</p>
       <div class="rl-window"><div class="rl-marker"></div><div id="rlStrip" class="rl-strip">${strip.map(rlCell).join('')}</div></div>
       <div class="rl-odds">${odds}</div>
       <div id="rlResult" class="rl-result hidden"></div>
@@ -496,8 +498,9 @@
           <div class="shop-desc">${esc(T.desc || '')}</div></div>`;
         res.classList.remove('hidden');
         mountSprites(res);
-        $('rlGo').outerHTML = '<button id="rlSquad" class="btn primary big">В отряд</button><button id="rlOk" class="btn big">Отлично</button>';
+        $('rlGo').outerHTML = '<button id="rlSquad" class="btn primary big">В отряд</button><button id="rlOk" class="btn big">Отлично</button>' + (profile.admin ? '<button id="rlAgain" class="btn big">Ещё раз</button>' : '');
         $('rlOk').onclick = closeModal;
+        if ($('rlAgain')) $('rlAgain').onclick = renderRoulette;
         $('rlSquad').onclick = () => openModal('squad');
         setProfile(r.profile);
       };
