@@ -386,6 +386,15 @@
     const r = R.ROLES[R.UNIT_TYPES[t].role];
     return r ? `<span class="role-tag" style="color:${r.color};border-color:${r.color}">${r.icon} ${r.name}</span>` : '';
   }
+  // Редкость юнита: метка и цвет рамки (как у лута)
+  const rarityOf = (t) => R.RARITIES[R.unitRarity(t)] || null;
+  function rarityBadge(t) {
+    const r = rarityOf(t);
+    return r ? `<span class="rar-tag rar-${r.key}" style="color:${r.color};border-color:${r.color}">${r.key === 'mythic' ? '✦ ' : ''}${r.m}</span>` : '';
+  }
+  const rarityStyle = (t) => { const r = rarityOf(t); return r ? ` style="--rc:${r.color}"` : ''; };
+  // Порядок показа: по редкости, внутри — по цене
+  const byRarity = (a, b) => R.unitRarity(a) - R.unitRarity(b) || (R.UNIT_TYPES[a].price || 0) - (R.UNIT_TYPES[b].price || 0);
   function unitStatsLine(t) {
     const T = R.UNIT_TYPES[t];
     return `❤ ${T.hp} · 👣 ${T.move} · ⚔ ${T.dmg} · 🎯 ${T.minRange > 1 ? T.minRange + '–' : ''}${T.range}`;
@@ -471,13 +480,13 @@
   function renderShop() {
     if (!profile) return closeModal();
     const m = profile.mine;
-    const units = R.SHOP_UNITS.map((t) => {
+    const units = R.SHOP_UNITS.slice().sort(byRarity).map((t) => {
       const T = R.UNIT_TYPES[t];
       const own = profile.unlocked.includes(t);
       const can = profile.coins >= T.price;
-      return `<div class="shop-item${own ? ' owned' : ''}">
+      return `<div class="shop-item rar-frame${own ? ' owned' : ''}"${rarityStyle(t)}>
         <span data-sprite="${t}" data-size="56"></span>
-        <div class="shop-info"><div class="shop-name">${T.name} <span class="cost-tag">${T.cost} оч.</span> ${roleBadge(t)}</div>
+        <div class="shop-info"><div class="shop-name">${T.name} <span class="cost-tag">${T.cost} оч.</span> ${rarityBadge(t)} ${roleBadge(t)}</div>
           <div class="shop-stats">${unitStatsLine(t)}</div><div class="shop-desc">${T.desc}</div></div>
         ${own ? '<div class="owned-tag">✔ Открыт</div>' : `<button class="btn small ${can ? 'primary' : ''}" data-buy="${t}" ${can ? '' : 'disabled'}>${T.price} 💰</button>`}
       </div>`;
@@ -516,11 +525,11 @@
   function renderSquad() {
     if (!profile) return closeModal();
     if (!draftSquad) draftSquad = profile.squad.slice();
-    const avail = R.BASIC_UNITS.concat(R.SHOP_UNITS.filter((t) => profile.unlocked.includes(t)), R.SPECIAL_UNITS.filter((t) => profile.unlocked.includes(t)));
+    const avail = R.BASIC_UNITS.concat(R.SHOP_UNITS.filter((t) => profile.unlocked.includes(t)), R.SPECIAL_UNITS.filter((t) => profile.unlocked.includes(t))).sort(byRarity);
     const cost = R.squadCost(draftSquad);
     const err = R.squadError(draftSquad, profile.unlocked);
     const pct = Math.min(100, (cost / R.SQUAD_BUDGET) * 100);
-    const members = ['commander'].concat(draftSquad).map((t, i) => `<div class="sq-member">
+    const members = ['commander'].concat(draftSquad).map((t, i) => `<div class="sq-member${i ? ' rar-frame' : ''}"${i ? rarityStyle(t) : ''}>
         <span data-sprite="${t}" data-size="48"></span><div class="sq-name">${R.UNIT_TYPES[t].name}</div>
         <div class="sq-cost">${i ? R.UNIT_TYPES[t].cost + ' оч.' : 'всегда'}</div>
         ${i ? `<button class="sq-del" data-del="${i - 1}" title="Убрать">✕</button>` : ''}</div>`).join('');
@@ -528,7 +537,7 @@
     const pool = avail.map((t) => {
       const T = R.UNIT_TYPES[t];
       const can = draftSquad.length < R.SQUAD_MAX && cost + T.cost <= R.SQUAD_BUDGET;
-      return `<button class="sq-pick${T.special ? ' special' : ''}" data-add="${t}" ${can ? '' : 'disabled'} title="${esc(T.desc)}">
+      return `<button class="sq-pick rar-frame${T.special ? ' special' : ''}" data-add="${t}"${rarityStyle(t)} ${can ? '' : 'disabled'} title="${esc(T.desc)}">
         <span data-sprite="${t}" data-size="40"></span><span class="sq-pname">${T.name}<br><small style="color:${(R.ROLES[T.role] || {}).color || '#999'}">${(R.ROLES[T.role] || {}).icon || ''} ${(R.ROLES[T.role] || {}).name || ''}</small></span><span class="cost-tag">${T.cost}</span></button>`;
     }).join('');
     const locked = R.SHOP_UNITS.filter((t) => !profile.unlocked.includes(t)).length;
@@ -751,16 +760,16 @@
     const errs = { blue: R.squadError(hs.blue, hsAllowed()), red: R.squadError(hs.red, hsAllowed()) };
     const cost = R.squadCost(sq);
     const tab = (k, n, c) => `<button class="hs-tab${side === k ? ' on' : ''}" data-hs-side="${k}" style="--c:${c}">${n}<small>${R.squadCost(hs[k])}/${R.SQUAD_BUDGET} оч.${errs[k] ? ' ⚠' : ''}</small></button>`;
-    const members = ['commander'].concat(sq).map((t, i) => `<div class="sq-member">
+    const members = ['commander'].concat(sq).map((t, i) => `<div class="sq-member${i ? ' rar-frame' : ''}"${i ? rarityStyle(t) : ''}>
         <span data-sprite="${t}" data-side="${side}" data-size="48"></span><div class="sq-name">${R.UNIT_TYPES[t].name}</div>
         <div class="sq-cost">${i ? R.UNIT_TYPES[t].cost + ' оч.' : 'всегда'}</div>
         ${i ? `<button class="sq-del" data-hs-del="${i - 1}" title="Убрать">✕</button>` : ''}</div>`).join('');
     const empties = Array.from({ length: R.SQUAD_MAX - sq.length }, () => '<div class="sq-member empty">пусто</div>').join('');
-    const pool = R.BASIC_UNITS.concat(hsAllowed()).map((t) => {
+    const pool = R.BASIC_UNITS.concat(hsAllowed()).sort(byRarity).map((t) => {
       const T = R.UNIT_TYPES[t];
       const can = !R.squadError(sq.concat(t), hsAllowed());
       const role = R.ROLES[T.role] || {};
-      return `<button class="sq-pick${T.special ? ' special' : ''}" data-hs-add="${t}" ${can ? '' : 'disabled'} title="${esc(T.desc)}">
+      return `<button class="sq-pick rar-frame${T.special ? ' special' : ''}" data-hs-add="${t}"${rarityStyle(t)} ${can ? '' : 'disabled'} title="${esc(T.desc)}">
         <span data-sprite="${t}" data-side="${side}" data-size="40"></span><span class="sq-pname">${T.name}<br><small style="color:${role.color || '#999'}">${role.icon || ''} ${role.name || ''}</small></span><span class="cost-tag">${T.cost}</span></button>`;
     }).join('');
     const pct = Math.min(100, (cost / R.SQUAD_BUDGET) * 100);
@@ -816,12 +825,13 @@
   // ---- Справочник: всё об игре в одном месте
   let codexTab = 'basics';
   function codexUnits() {
-    const order = ['commander'].concat(R.BASIC_UNITS, R.SHOP_UNITS, R.SPECIAL_UNITS, ['zombie', 'turret', 'barrier']);
-    return order.map((t) => {
+    const order = ['commander'].concat(R.BASIC_UNITS.concat(R.SHOP_UNITS).sort(byRarity), R.SPECIAL_UNITS, ['zombie', 'turret', 'barrier']);
+    const legend = `<div class="econ-dim" style="margin-bottom:8px">Редкость юнита: ${R.RARITIES.map((r) => `<b style="color:${r.color}">${r.m}</b>`).join(' · ')}. Чем реже — тем дороже в магазине; Мифические выдаёт только админ.</div>`;
+    return legend + order.map((t) => {
       const T = R.UNIT_TYPES[t];
       const where = t === 'commander' ? 'в каждом отряде' : T.special ? 'только от админа' : T.noShop ? 'появляется в бою' : T.price ? `магазин: ${T.price} 💰` : 'доступен сразу';
-      return `<div class="shop-item"><span data-sprite="${t}" data-size="48"></span>
-        <div class="shop-info"><div class="shop-name">${T.name} ${roleBadge(t)} ${T.cost ? `<span class="cost-tag">${T.cost} оч.</span>` : ''}</div>
+      return `<div class="shop-item${rarityOf(t) ? ' rar-frame' : ''}"${rarityStyle(t)}><span data-sprite="${t}" data-size="48"></span>
+        <div class="shop-info"><div class="shop-name">${T.name} ${rarityBadge(t)} ${roleBadge(t)} ${T.cost ? `<span class="cost-tag">${T.cost} оч.</span>` : ''}</div>
         <div class="shop-stats">${t === 'barrier' ? `❤ ${T.hp}` : unitStatsLine(t)} · ${where}</div><div class="shop-desc">${T.desc}</div></div></div>`;
     }).join('');
   }
@@ -1700,7 +1710,7 @@
         <canvas id="portrait" class="portrait"></canvas>
         <div>
           <div class="u-name ${u.side}">${T.name}</div>
-          <div class="u-side">${SIDE_RU[u.side].toUpperCase()}${own ? ' · ваш юнит' : ''} ${roleBadge(u.type)}</div>
+          <div class="u-side">${SIDE_RU[u.side].toUpperCase()}${own ? ' · ваш юнит' : ''} ${rarityBadge(u.type)} ${roleBadge(u.type)}</div>
           <div class="hpbar"><div style="width:${pct}%;background:${hpCol}"></div><span>${u.hp} / ${u.maxHp} HP</span></div>
         </div>
       </div>

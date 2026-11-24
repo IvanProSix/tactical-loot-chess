@@ -167,6 +167,16 @@
     { key: 'mythic', m: 'Мифический', f: 'Мифическая', color: '#f43f5e', weight: 1 },
   ];
   const MAX_LUCK = 10;
+  // Редкость юнитов (та же шкала и цвета, что у лута): базовые и дешёвые — Обычные, дальше по цене в магазине,
+  // особые (только от админа) — Мифические. Призванных и Командира редкость не касается (−1).
+  function unitRarity(type) {
+    const T = UNIT_TYPES[type];
+    if (!T || T.noShop || type === 'commander') return -1;
+    if (T.rarity != null) return T.rarity;
+    if (T.special) return 4;
+    const p = T.price || 0;
+    return p < 300 ? 0 : p <= 400 ? 1 : p <= 550 ? 2 : 3;
+  }
 
   const ITEMS = {
     shotgun: { name: 'Дробовик', g: 'm', active: true, weight: 1 },
@@ -614,7 +624,7 @@
 
   return {
     N, TURN_SECONDS, UNIT_TYPES, ITEMS, ITEM_KEYS, SHOTGUN, MEDKIT_HEAL,
-    RARITIES, MAX_LUCK, ITEM_STATS, itemStat, rarityName, itemFullName, itemDesc,
+    RARITIES, unitRarity, MAX_LUCK, ITEM_STATS, itemStat, rarityName, itemFullName, itemDesc,
     lootLevel, cratesPerDrop, maxCrates, dropInterval, rarityWeights, rarityChances, doubleDropChance,
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS, diagClear, canFireAt, DIAG,
     BUFF_CAP, rammable, unitDmg, unitRange, isBehind, sniperLocked,
