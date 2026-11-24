@@ -401,7 +401,7 @@
   }
 
   // ---- админка: выдача монет и юнитов, сброс таймеров (права только у ников из ADMIN_NAMES на сервере)
-  const SPECIAL_ICON = { elephant: '🐘', icemage: '❄', bishop: '♝' };
+  const SPECIAL_ICON = { elephant: '🐘', icemage: '❄', bishop: '♝', sosud: '⚱' };
   function renderAdmin() {
     if (!profile || !profile.admin) return closeModal();
     $('modalBody').innerHTML = `<h2 class="modal-title">🛠 АДМИНКА</h2>
@@ -995,7 +995,8 @@
         u.hp = e.hp;
         if (e.maxHp) u.maxHp = e.maxHp;
         if (e.stacks != null) { u.poisonStacks = e.stacks; u.poisoned = e.poisoned; }
-        if (e.cured) addFloat('ЯД СНЯТ', u.x, u.y, '#84cc16');
+        if (e.grow) addFloat(`+${e.grow} МАКС. HP`, u.x, u.y, '#c084fc');
+        else if (e.cured) addFloat('ЯД СНЯТ', u.x, u.y, '#84cc16');
         else if (e.stacks) addFloat(`ЯД ×${e.stacks}`, u.x, u.y, '#84cc16');
         else addFloat(`+${e.amount}`, u.x, u.y, '#4ade80');
         burst(cellCenter(u.x, u.y), 12, ['#4ade80', '#bbf7d0'], 1.2, -1);
@@ -1248,7 +1249,7 @@
       sniper: 110, shotgun: 130, grenade: 380, punch: 150,
       bolt: 90 + d * 40, burst: 220 + d * 40, dart: 120 + d * 45, syringe: 140 + d * 45,
       ice: 130 + d * 45, frost: 280 + d * 40, poison: 130 + d * 45, skull: 220 + d * 50, claw: 170,
-      knife: 160 + d * 50, bone: 200 + d * 55, shield: 180 + d * 55, wave: 260 + d * 60,
+      knife: 160 + d * 50, sword: 170, bone: 200 + d * 55, shield: 180 + d * 55, wave: 260 + d * 60,
     };
     const dur = Math.round(DUR[kind] != null ? DUR[kind] : 80 + d * 45);
     projectiles.push({ from, to, kind, side, t0: nowMs(), dur });
@@ -1608,9 +1609,11 @@
     if (u.raiseCd > 0) deb += `<div class="debuff" style="color:#a78bfa">💀 Подъём мертвецов перезаряжается: ${u.raiseCd} ход.</div>`;
     if (u.type === 'paramedic') deb += `<div class="debuff" style="color:#fde68a">✨ Воскрешений осталось: ${R.REVIVE.uses - (u.reviveUses || 0)} из ${R.REVIVE.uses}</div>`;
     if (u.frozen > 0) deb += `<div class="debuff" style="color:#a5f3fc">❄ Заморожен: не может двигаться ещё ${u.frozen} ${u.frozen === 1 ? 'ход' : 'хода'}</div>`;
+    if (u.doubleCd > 0) deb += `<div class="debuff" style="color:#c084fc">⚔ Двойной удар перезаряжается: ${u.doubleCd} ${u.doubleCd === 1 ? 'ход' : 'хода'}</div>`;
+    if (R.UNIT_TYPES[u.type].growOnKill && u.maxHp > R.UNIT_TYPES[u.type].hp) deb += `<div class="debuff" style="color:#c084fc">🩸 Поглощено: +${u.maxHp - R.UNIT_TYPES[u.type].hp} к макс. HP</div>`;
     if (u.freezeCd > 0) deb += `<div class="debuff" style="color:#67e8f9">❄ Ледяной залп перезаряжается: ${u.freezeCd} ${u.freezeCd === 1 ? 'ход' : 'хода'}</div>`;
     let btns = '';
-    const AB = { detonate: ['Самоподрыв', 'Нажмите на Дрона — он взорвётся, нанеся 3 урона врагам вокруг'], barrier: ['Поставить преграду', 'Выберите клетку рядом — там встанет преграда'], mines: [u.minesLeft > 0 ? 'Вторая мина' : 'Поставить 2 мины', 'Выберите клетку рядом для мины'], raise: ['Поднять мертвецов', 'Нажмите на Некроманта — рядом встанут зомби'], revive: ['Воскресить', 'Выберите надгробие союзника в радиусе 2'], freeze: ['Ледяной залп', 'Выберите врага в радиусе 4 — он не сможет ходить 3 хода'], trumpet: ['Трубный рёв', 'Нажмите на слоника — враги вокруг получат урон и отлетят'], heal: ['Лечить', 'Выберите раненого союзника рядом'], boost: ['Ускорить союзника', 'Выберите союзника в радиусе 2'], turret: ['Поставить турель', 'Выберите клетку рядом'] };
+    const AB = { double: ['Двойной удар', 'Выберите врага вплотную — два удара подряд'], detonate: ['Самоподрыв', 'Нажмите на Дрона — он взорвётся, нанеся 3 урона врагам вокруг'], barrier: ['Поставить преграду', 'Выберите клетку рядом — там встанет преграда'], mines: [u.minesLeft > 0 ? 'Вторая мина' : 'Поставить 2 мины', 'Выберите клетку рядом для мины'], raise: ['Поднять мертвецов', 'Нажмите на Некроманта — рядом встанут зомби'], revive: ['Воскресить', 'Выберите надгробие союзника в радиусе 2'], freeze: ['Ледяной залп', 'Выберите врага в радиусе 4 — он не сможет ходить 3 хода'], trumpet: ['Трубный рёв', 'Нажмите на слоника — враги вокруг получат урон и отлетят'], heal: ['Лечить', 'Выберите раненого союзника рядом'], boost: ['Ускорить союзника', 'Выберите союзника в радиусе 2'], turret: ['Поставить турель', 'Выберите клетку рядом'] };
     if (own && T.ability && !view.winner) {
       const ok = R.abilityTargets(view, u).length > 0 && (T.ability !== 'mines' || u.minesLeft > 0 || R.canAct(view, u));
       const active = mode === 'ability';
@@ -2312,7 +2315,7 @@
   // Снаряды-спрайты: [имя, вращается, размер в долях клетки]
   const PROJ_SPRITE = {
     knife: ['p_knife', true, 0.6], bone: ['p_bone', true, 0.7], syringe: ['p_syringe', false, 0.6],
-    dart: ['p_dart', false, 0.55], poison: ['p_pdart', false, 0.55], skull: ['p_skull', false, 0.6, true], ice: ['p_ice', false, 0.6], punch: ['p_fist', false, 0.75], shield: ['i_shield', true, 0.6],
+    dart: ['p_dart', false, 0.55], poison: ['p_pdart', false, 0.55], skull: ['p_skull', false, 0.6, true], ice: ['p_ice', false, 0.6], punch: ['p_fist', false, 0.75], shield: ['i_shield', true, 0.6], sword: ['p_sword', false, 0.85],
   };
   function drawFx(now, dt) {
     // снаряды
@@ -2325,10 +2328,10 @@
         const HIT = {
           shotgun: ['#fb923c', '#facc15'], knife: ['#e5e7eb', '#ef4444'], bone: ['#f8fafc', '#d1d5db'], syringe: ['#22d3ee', '#fff'],
           dart: ['#22d3ee', '#fff'], poison: ['#84cc16', '#d9f99d'], skull: ['#a78bfa', '#7c3aed', '#fff'], claw: ['#4ade80', '#ef4444'], ice: ['#a5f3fc', '#fff'], frost: ['#a5f3fc', '#67e8f9', '#fff'], scan: ['#22d3ee', '#a5f3fc', '#fff'], punch: ['#fb923c', '#9ca3af', '#fff'], shield: ['#22d3ee', '#93c5fd'], wave: ['#4ade80', '#bbf7d0'],
-          bolt: ['#facc15', '#fde68a', '#fff'],
+          bolt: ['#facc15', '#fde68a', '#fff'], sword: ['#d6e3ff', '#90ecff', '#fb007e', '#fff'],
         };
         burst(b, p.kind === 'punch' ? 14 : 8, HIT[p.kind] || ['#fff', TEAM_COL[p.side] || '#fff'], 1.6);
-        if (p.kind === 'punch' || p.kind === 'bone') shake = Math.max(shake, 2.5);
+        if (p.kind === 'punch' || p.kind === 'bone' || p.kind === 'sword') shake = Math.max(shake, 2.5);
         continue;
       }
       const hx = a.x + (b.x - a.x) * t, hy = a.y + (b.y - a.y) * t;

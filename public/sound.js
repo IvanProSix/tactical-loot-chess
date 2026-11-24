@@ -240,6 +240,11 @@ const Sound = (() => {
           noise({ f: 6000, f2: 2500, dur: 0.18, vol: 0.14, filter: 'bandpass', q: 3 });
           tone({ type: 'triangle', f: 2200, f2: 1700, dur: 0.08, vol: 0.05, delay: 0.05 });
           return;
+        case 'sword': // свист клинка и звон стали
+          noise({ f: 4500, f2: 1200, dur: 0.16, vol: 0.14, filter: 'bandpass', q: 2.5 });
+          tone({ type: 'triangle', f: 2600, f2: 2400, dur: 0.18, vol: 0.06, delay: 0.1 });
+          tone({ type: 'sine', f: 3900, dur: 0.12, vol: 0.03, delay: 0.1 });
+          return;
         case 'bone':
           noise({ f: 1500, f2: 600, dur: 0.15, vol: 0.1, filter: 'bandpass', q: 1.5 });
           tone({ type: 'triangle', f: 320, f2: 160, dur: 0.12, vol: 0.12, delay: 0.12 });

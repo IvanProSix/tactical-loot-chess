@@ -62,6 +62,8 @@
       desc: 'Особый юнит — выдаёт только администратор. Способность (Действие): ледяной залп — враг в радиусе 4 на линии огня получает 1 урона и не может двигаться 3 своих хода (стрелять может). Перезарядка — 3 хода. Обычная атака замораживает на 1 ход.' },
     bishop: { name: 'Епископ (Bishop)', role: 'special', hp: 5, move: 1, dmg: 2, range: 7, minRange: 1, cost: 3, price: 0, special: true, bishop: true,
       desc: 'Особый юнит — выдаёт только администратор. Ходит как шахматный слон: по диагонали на любое число клеток, пока путь свободен, — или на 1 клетку в любую сторону, как король. Стреляет только по диагонали на любую дальность; выстрел останавливает первый же юнит, стена или преграда на линии.' },
+    sosud: { name: 'Сосуд', role: 'special', hp: 5, move: 2, dmg: 2, range: 1, minRange: 1, cost: 3, price: 0, special: true, ability: 'double', growOnKill: true,
+      desc: 'Особый юнит — выдаёт только администратор. Бьёт мечом вплотную. Способность (Действие): ДВОЙНОЙ УДАР — два удара подряд по соседнему врагу; если первый убил, второй достаётся другому врагу рядом. Перезарядка 3 хода. Поглощает убитых: за каждое убийство навсегда +2 к макс. HP и +2 HP (за призванных — +1), но не больше 16.' },
     turret: { name: 'Турель', role: 'summon', hp: 2, move: 0, dmg: 1, range: 3, minRange: 1, cost: 0, price: 0, static: true, noShop: true,
       desc: 'Стоит на месте. В конце хода своей команды стреляет по самому раненому врагу в радиусе 3.' },
     barrier: { name: 'Преграда', role: 'summon', hp: 4, move: 0, dmg: 0, range: 0, minRange: 1, cost: 0, price: 0, static: true, noShop: true, blocksLOS: true,
@@ -101,13 +103,14 @@
   const SHOT_KIND = {
     commander: 'bolt', assault: 'burst', sniper: 'sniper', scout: 'dart', medic: 'syringe', grenadier: 'grenade',
     heavy: 'punch', engineer: 'laser', saboteur: 'knife', drone: 'laser', shieldbearer: 'shield', signaller: 'wave',
-    elephant: 'bone', bishop: 'bolt', turret: 'laser', tracker: 'scan', icemage: 'ice',
+    elephant: 'bone', bishop: 'bolt', sosud: 'sword', turret: 'laser', tracker: 'scan', icemage: 'ice',
     necromancer: 'skull', zombie: 'claw', paramedic: 'syringe', poisoner: 'poison',
     skeleton: 'bone', defender: 'shield', sapper: 'laser', barrier: 'laser',
   };
   const BARRIER = { max: 2, cooldown: 2 }; // Защитник
   const MINES = { count: 2, cooldown: 2, dmg: 3 }; // Сапёр
   const DETONATE = { dmg: 3 }; // Дрон
+  const SOSUD = { cooldown: 3, grow: 2, growSummon: 1, maxHp: 16 }; // Сосуд: двойной удар и рост за убийства
   const FREEZE = { range: 4, turns: 3, cooldown: 3 };
   const RAISE = { count: 3, max: 3, cooldown: 5, life: 3 }; // Некромант; зомби живут 3 хода
   const REVIVE = { uses: 2, rounds: 3, radius: 2 }; // Парамедик
@@ -564,6 +567,10 @@
       return g.units.filter((o) => o.alive && o.side !== u.side && !UNIT_TYPES[o.type].static && !(o.frozen >= FREEZE.turns) &&
         !isHidden(g, o) && cheb(o, u) <= FREEZE.range && hasLOS(g, u, o)).map((o) => ({ x: o.x, y: o.y, id: o.id }));
     }
+    if (ab === 'double') {
+      if (u.doubleCd > 0) return [];
+      return g.units.filter((o) => o.alive && o.side !== u.side && !isHidden(g, o) && cheb(o, u) === 1).map((o) => ({ x: o.x, y: o.y, id: o.id }));
+    }
     if (ab === 'trumpet') {
       // применяется на себя, если рядом есть хотя бы один враг
       return g.units.some((o) => o.alive && o.side !== u.side && cheb(o, u) <= 1) ? [{ x: u.x, y: u.y, id: u.id }] : [];
@@ -608,7 +615,7 @@
     DIR4, DIR8, key, inBounds, cheb, manh, other, isWall, unitAt, crateAt, bresenham, hasLOS, diagClear, canFireAt, DIAG,
     BUFF_CAP, rammable, unitDmg, unitRange, isBehind, sniperLocked,
     canUseUnit, canMove, canAct, canShoot, moveRange, reachable, moveCells, pathTo, attackInfo, targets,
-    CAMPAIGN, AI_LEVELS, ROLES, SQUAD_SAME_MAX, BARRIER, MINES, DETONATE, canJet, SHOT_KIND, FREEZE, RAISE, REVIVE, POISON, revivable, hasReviver, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
+    CAMPAIGN, AI_LEVELS, ROLES, SQUAD_SAME_MAX, BARRIER, MINES, DETONATE, SOSUD, canJet, SHOT_KIND, FREEZE, RAISE, REVIVE, POISON, revivable, hasReviver, BASIC_UNITS, SHOP_UNITS, SPECIAL_UNITS, SQUAD_BUDGET, SQUAD_MAX, DEFAULT_SQUAD, HEAL_AMOUNT, BOOST_AMOUNT,
     squadError, squadCost, isHidden, abilityTargets,
     jetpackCells, mineCells, hasUsefulMove, hasUsefulAct, shouldAutoEnd,
   };

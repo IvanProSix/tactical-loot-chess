@@ -56,6 +56,13 @@ function scoreAbility(g, u, c, side, level) {
     case 'turret': return 16;
     case 'boost': return 3;
     case 'freeze': { const t = R.unitAt(g, c.x, c.y); return t ? 14 + R.unitDmg(t) * 3 + (t.type === 'commander' ? 8 : 0) : 0; }
+    case 'double': {
+      // два удара подряд: ценнее обычной атаки, особенно когда хватает на убийство
+      const t = R.unitAt(g, c.x, c.y);
+      if (!t) return 0;
+      const d2 = R.unitDmg(u) * 2;
+      return 18 + d2 * 3 + (d2 >= t.hp ? 40 : 0) + (t.type === 'commander' ? (d2 >= t.hp ? 1000 : 25) : 0);
+    }
     case 'trumpet': return foes.filter((f) => R.cheb(f, u) <= 1).length * 9;
     case 'detonate': {
       const hit = foes.filter((f) => R.cheb(f, u) <= 1);

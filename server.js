@@ -290,7 +290,7 @@ function makeUnit(g, id, type, side, x, y) {
   const u = {
     id, type, side, x, y, hp: T.hp, maxHp: T.hp, alive: true, item: null,
     moved: false, acted: false, attacked: false, slowed: false, slowNext: false, boost: 0, revealUntil: null,
-    buffs: { dmg: 0, range: 0, move: 0, steady: 0 }, frozen: 0, freezeCd: 0,
+    buffs: { dmg: 0, range: 0, move: 0, steady: 0 }, frozen: 0, freezeCd: 0, doubleCd: 0,
     poisoned: 0, poisonStacks: 0, raiseCd: 0, reviveUses: 0, diedRound: null, life: null,
     jetted: false, barrierCd: 0, minesCd: 0, minesLeft: 0,
   };
@@ -694,6 +694,20 @@ function pushAway(g, from, t) {
   }
 }
 
+// Сосуд поглощает убитого врага: навсегда растёт запас и текущее здоровье
+function absorbKill(g, u, t) {
+  if (!u.alive || t.alive || !R.UNIT_TYPES[u.type].growOnKill) return;
+  const TT = R.UNIT_TYPES[t.type];
+  if (TT.blocksLOS) return; // преграда — не живая
+  const add = Math.min(TT.summon || TT.static ? R.SOSUD.growSummon : R.SOSUD.grow, R.SOSUD.maxHp - u.maxHp);
+  if (add <= 0) return;
+  u.maxHp += add;
+  const before = u.hp;
+  u.hp = Math.min(u.maxHp, u.hp + add);
+  ev(g, 'heal', { unitId: u.id, amount: u.hp - before, hp: u.hp, maxHp: u.maxHp, grow: add });
+  addLog(g, `🩸 ${label(u)} поглощает ${label(t)}: +${add} к макс. HP (${u.hp}/${u.maxHp})`, 'heal');
+}
+
 function actAttack(g, side, a) {
   const u = getOwnUnit(g, side, a.unitId);
   const t = g.units.find((x) => x.id === a.targetId && x.alive);
@@ -719,6 +733,7 @@ function actAttack(g, side, a) {
     damage(g, t, info.dmg, { pierce: true });
   } else {
     damage(g, t, info.dmg);
+    absorbKill(g, u, t);
     if (T.knockback) pushAway(g, u, t);
     // Дротист: +1 стак яда (до 3), срок обновляется до 2 ходов
     if (T.poisonOnHit && t.alive && !R.UNIT_TYPES[t.type].static) {
@@ -830,6 +845,22 @@ function actAbility(g, side, a) {
       t.frozen = Math.max(t.frozen || 0, R.FREEZE.turns);
       ev(g, 'freeze', { unitId: t.id, turns: t.frozen });
       addLog(g, `${label(t)} заморожен: не может двигаться ${R.FREEZE.turns} хода`, 'shield');
+    }
+  } else if (ab === 'double') {
+    // Двойной удар Сосуда: два отдельных удара (каждый может съесть блок Энергощита)
+    let t = R.unitAt(g, x, y);
+    u.doubleCd = R.SOSUD.cooldown; u.attacked = true;
+    addLog(g, `⚔ ${label(u)}: ДВОЙНОЙ УДАР!`, 'atk');
+    for (let hit = 0; hit < 2 && u.alive; hit++) {
+      if (!t || !t.alive) {
+        // первый удар убил — второй по другому врагу рядом (самому раненому)
+        t = g.units.filter((o) => o.alive && o.side !== u.side && !R.isHidden(g, o) && R.cheb(o, u) === 1)
+          .sort((p, q) => p.hp - q.hp)[0];
+        if (!t) break;
+      }
+      ev(g, 'shot', { unitId: u.id, from: { x: u.x, y: u.y }, to: { x: t.x, y: t.y }, kind: 'sword', side: u.side });
+      damage(g, t, R.unitDmg(u));
+      absorbKill(g, u, t);
     }
   } else if (ab === 'trumpet') {
     ev(g, 'trumpet', { unitId: u.id });
@@ -948,6 +979,7 @@ function endTurn(g, reason) {
     // заморозка и перезарядка считаются в конце хода своей команды
     if (u.frozen > 0) { u.frozen--; if (!u.frozen && u.alive) ev(g, 'thaw', { unitId: u.id }); }
     if (u.freezeCd > 0) u.freezeCd--;
+    if (u.doubleCd > 0) u.doubleCd--;
     if (u.raiseCd > 0) u.raiseCd--;
     if (u.barrierCd > 0) u.barrierCd--;
     if (u.minesCd > 0) u.minesCd--;

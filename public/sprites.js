@@ -22,6 +22,9 @@ const Sprites = (() => {
     neutral: { T: '#9ca3af', t: '#4b5563', L: '#e5e7eb' },
   };
 
+  // Собственные палитры авторских спрайтов (символы не пересекаются с общей палитрой)
+  const SPAL = {"sosud": {"0": "#4d00ff", "1": "#4900f4", "2": "#4600e9", "3": "#4700ed", "4": "#c5b4f0", "5": "#b0a0da", "6": "#afa2d3", "7": "#74e7ff", "8": "#90ecff", "9": "#86d8e9", "@": "#3700b6", "#": "#3100a4", "$": "#fb007e", "%": "#9eeeff", "&": "#7ad3e6", "*": "#73c3d3", "+": "#3d00cc", "=": "#a99ccc", "?": "#9e91c1"}, "p_sword": {"0": "#3f3f74", "1": "#c4cfe6", "2": "#bac6de", "3": "#d6e3ff", "4": "#cbdbfc", "5": "#c0cee9", "6": "#a2adc5", "7": "#b4c2de", "8": "#ffffff"}};
+
   const DATA = {
     commander: [
       '......kkkk......',
@@ -473,6 +476,43 @@ const Sprites = (() => {
       '...kyyyyyyyyk...',
       '..kLTTTTTTTTtk..',
       '..kkkkkkkkkkkk..',
+    ],
+    // Сосуд и его меч — авторские рисунки (Aseprite), цвета — в SPAL
+    sosud: [
+      '.....0001111....',
+      '...0001122233.3.',
+      '..001122222223..',
+      '..0122222222223.',
+      '.0122422222222..',
+      '..124562622222..',
+      '..127788829222..',
+      '.0227888889222@.',
+      '0522288899222@5#',
+      '.2552$$$$$$255##',
+      '2%22552222$5@@&#',
+      '2%8225555552@**#',
+      '.22222222222@##.',
+      '....+=5++5=?#...',
+      '.....+?+@??#....',
+      '...+@@@@#####...',
+    ],
+    p_sword: [
+      '................',
+      '................',
+      '................',
+      '................',
+      '...000..........',
+      '...01000000000..',
+      '.00020133344530.',
+      '.060207777553380',
+      '.00060113333580.',
+      '...06000000000..',
+      '...000..........',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
     turret: [
       '................',
@@ -982,7 +1022,7 @@ const Sprites = (() => {
 
   const UNIT_TYPES = ['commander', 'assault', 'sniper', 'scout', 'medic', 'grenadier', 'heavy', 'engineer',
     'saboteur', 'drone', 'shieldbearer', 'signaller', 'turret', 'elephant', 'tracker', 'icemage',
-    'necromancer', 'zombie', 'paramedic', 'poisoner', 'skeleton', 'sapper', 'defender', 'barrier', 'bishop'];
+    'necromancer', 'zombie', 'paramedic', 'poisoner', 'skeleton', 'sapper', 'defender', 'barrier', 'bishop', 'sosud'];
   const cache = new Map();
 
   // Нормализация: каждая строка ровно 16 символов (защита от опечаток в матрицах)
@@ -998,7 +1038,7 @@ const Sprites = (() => {
   }
 
   // Объём: пиксель у нижнего/правого контура чуть темнее, у верхнего/левого — чуть светлее
-  const NO_SHADE = new Set(['icemage']); // авторский рисунок — без автотеней
+  const NO_SHADE = new Set(['icemage', 'sosud', 'p_sword']); // авторский рисунок — без автотеней
   function shade(hex, f) {
     const n = parseInt(hex.slice(1), 16);
     const ch = (v) => Math.round(f < 0 ? v * (1 + f) : v + (255 - v) * f);
@@ -1012,7 +1052,7 @@ const Sprites = (() => {
     return 0;
   }
 
-  function bake(rows, team, mode, flat) {
+  function bake(rows, team, mode, flat, own) {
     const c = document.createElement('canvas');
     c.width = 16; c.height = 16;
     const x = c.getContext('2d');
@@ -1021,7 +1061,7 @@ const Sprites = (() => {
       for (let px = 0; px < 16; px++) {
         const ch = rows[py][px];
         if (ch === '.') continue;
-        let col = tp[ch] || PAL[ch] || '#ff00ff';
+        let col = (own && own[ch]) || tp[ch] || PAL[ch] || '#ff00ff';
         if (!flat && ch !== 'k' && col[0] === '#' && col.length === 7) { const e = edge(rows, px, py); if (e) col = shade(col, e); }
         if (mode === 'flash') col = ch === 'k' ? '#ffffff' : '#ffffff';
         if (mode === 'ghost') col = ch === 'k' ? '#0b1220' : col;
@@ -1037,8 +1077,8 @@ const Sprites = (() => {
       const rows = norm(raw, name);
       const teams = UNIT_TYPES.includes(name) ? ['blue', 'red', 'neutral'] : ['neutral'];
       for (const t of teams) {
-        cache.set(`${name}|${t}|`, bake(rows, t, '', NO_SHADE.has(name)));
-        cache.set(`${name}|${t}|flash`, bake(rows, t, 'flash'));
+        cache.set(`${name}|${t}|`, bake(rows, t, '', NO_SHADE.has(name), SPAL[name]));
+        cache.set(`${name}|${t}|flash`, bake(rows, t, 'flash', true, SPAL[name]));
       }
     }
   }
