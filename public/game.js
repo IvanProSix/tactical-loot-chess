@@ -313,6 +313,7 @@
     if (kind === 'vsai') renderVsAI();
     if (kind === 'campaign') renderCampaign();
     if (kind === 'codex') renderCodex();
+    if (kind === 'changelog') renderChangelog();
     if (kind === 'hotseat') { hs = null; renderHotseat(); }
   }
   function closeModal() {
@@ -797,6 +798,28 @@
     $('hsGo').onclick = () => { Sound.unlock(); save(); const d = { blue: hs.blue.slice(), red: hs.red.slice() }; closeModal(); socket.emit('solo', d); };
   }
 
+  // ---- Версия и список изменений
+  const VER_KEY = 'tlc_seen_version';
+  function changelogHtml() {
+    return CHANGELOG.map((c, i) => `<details class="cl-ver"${i === 0 ? ' open' : ''}>
+        <summary><b class="cl-v">v${esc(c.v)}</b> ${esc(c.title)} <span class="cl-date">${esc(c.date)}</span>${i === 0 ? ' <span class="cl-now">текущая</span>' : ''}</summary>
+        <ul class="codex-list">${c.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>`).join('');
+  }
+  function renderChangelog() {
+    $('modalBody').innerHTML = `<h2 class="modal-title">📜 ЧТО НОВОГО</h2><div class="cl-list">${changelogHtml()}</div>`;
+    try { localStorage.setItem(VER_KEY, GAME_VERSION); } catch (e) { /* нет хранилища */ }
+    updateVersionTag();
+  }
+  function updateVersionTag() {
+    const b = $('btnVersion');
+    if (!b) return;
+    let seen = null;
+    try { seen = localStorage.getItem(VER_KEY); } catch (e) { /* нет хранилища */ }
+    b.innerHTML = `v${esc(GAME_VERSION)}${seen !== GAME_VERSION ? '<i class="ver-dot" title="Есть новое"></i>' : ''}`;
+  }
+  updateVersionTag();
+  $('btnVersion').onclick = () => { Sound.select(); openModal('changelog'); };
+
   function renderCampaign() {
     const done = campaignDone();
     const cards = R.CAMPAIGN.map((L, i) => {
@@ -874,8 +897,8 @@
       <li><b>Аккаунт</b>: 🛒 магазин (открыть юнитов), ⚔ отряд (до 5 бойцов на 12 очков, одинаковых — не больше 2), ⛏ рудник (монеты каждый час, до 8 часов), 🎁 ежедневная награда (7 дней подряд — случайный закрытый юнит: чем он реже, тем меньше шанс), 🔑 смена пароля.</li></ul>`,
   };
   function renderCodex() {
-    const tabs = [['basics', 'Основы'], ['units', 'Юниты'], ['items', 'Предметы'], ['mech', 'Механики'], ['modes', 'Режимы и аккаунт']];
-    const body = codexTab === 'units' ? codexUnits() : codexTab === 'items' ? codexItems() : CODEX_TEXT[codexTab];
+    const tabs = [['basics', 'Основы'], ['units', 'Юниты'], ['items', 'Предметы'], ['mech', 'Механики'], ['modes', 'Режимы и аккаунт'], ['news', `Обновления v${GAME_VERSION}`]];
+    const body = codexTab === 'units' ? codexUnits() : codexTab === 'items' ? codexItems() : codexTab === 'news' ? `<div class="cl-list">${changelogHtml()}</div>` : CODEX_TEXT[codexTab];
     $('modalBody').innerHTML = `<h2 class="modal-title">📖 СПРАВОЧНИК</h2>
       <div class="codex-tabs">${tabs.map(([k, n]) => `<button class="btn small${k === codexTab ? ' primary' : ''}" data-tab="${k}">${n}</button>`).join('')}</div>
       <div class="codex-body ${codexTab === 'units' || codexTab === 'items' ? 'shop-list' : ''}">${body}</div>`;
