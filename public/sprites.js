@@ -1071,16 +1071,23 @@ const Sprites = (() => {
   }
 
   // Объём для авторского рисунка без контура (форма та же): свет слева-сверху, тень справа-снизу, тёмная кромка по силуэту
-  const VOLUME = new Set(['sosud']);
+  // значение — цвет теней (null — просто темнее); у Ледяного мага тени холодные, голубые
+  const VOLUME = new Map([['sosud', null], ['icemage', '#2f5d9e']]);
+  function mix(hex, to, f) {
+    const a = parseInt(hex.slice(1), 16), b = parseInt(to.slice(1), 16);
+    const ch = (sh) => Math.round(((a >> sh) & 255) * (1 - f) + ((b >> sh) & 255) * f);
+    return '#' + [16, 8, 0].map((sh) => ch(sh).toString(16).padStart(2, '0')).join('');
+  }
   function volume(rows, px, py) {
     const row = rows[py];
     let a = 16, b = -1;
-    for (let i = 0; i < 16; i++) if (row[i] !== '.') { if (a > i) a = i; b = i; }
+    for (let i = 0; i < 16; i++) if (row[i] !== '.' && row[i] !== 'k') { if (a > i) a = i; b = i; }
     const t = b > a ? (px - a) / (b - a) : 0.5;            // 0 — левый край, 1 — правый
     let f = 0.28 - t * 0.6 - (py / 15) * 0.12;             // цилиндрическое освещение
     const at = (x, y) => (rows[y] && rows[y][x]) || '.';
-    if (at(px + 1, py) === '.' || at(px, py + 1) === '.') f -= 0.3;       // кромка в тени
-    else if (at(px - 1, py) === '.' || at(px, py - 1) === '.') f += 0.12; // кромка на свету
+    const out = (c) => c === '.' || c === 'k';
+    if (out(at(px + 1, py)) || out(at(px, py + 1))) f -= 0.3;       // кромка в тени
+    else if (out(at(px - 1, py)) || out(at(px, py - 1))) f += 0.12; // кромка на свету
     return Math.max(-0.6, Math.min(0.4, f));
   }
 
@@ -1094,7 +1101,10 @@ const Sprites = (() => {
         const ch = rows[py][px];
         if (ch === '.') continue;
         let col = (own && own[ch]) || tp[ch] || PAL[ch] || '#ff00ff';
-        if (vol && mode !== 'flash') { const f = volume(rows, px, py); if (f) col = shade(col, f); }
+        if (vol && mode !== 'flash' && ch !== 'k') {
+          const f = volume(rows, px, py);
+          if (f) col = f < 0 && vol.tint ? mix(col, vol.tint, -f * 1.1) : shade(col, f);
+        }
         else if (!flat && ch !== 'k' && col[0] === '#' && col.length === 7) { const e = edge(rows, px, py); if (e) col = shade(col, e); }
         if (mode === 'flash') col = ch === 'k' ? '#ffffff' : '#ffffff';
         if (mode === 'ghost') col = ch === 'k' ? '#0b1220' : col;
@@ -1110,7 +1120,7 @@ const Sprites = (() => {
       const rows = norm(raw, name);
       const teams = UNIT_TYPES.includes(name) ? ['blue', 'red', 'neutral'] : ['neutral'];
       for (const t of teams) {
-        cache.set(`${name}|${t}|`, bake(rows, t, '', NO_SHADE.has(name), SPAL[name], VOLUME.has(name)));
+        cache.set(`${name}|${t}|`, bake(rows, t, '', NO_SHADE.has(name), SPAL[name], VOLUME.has(name) ? { tint: VOLUME.get(name) } : null));
         cache.set(`${name}|${t}|flash`, bake(rows, t, 'flash', true, SPAL[name]));
       }
     }
