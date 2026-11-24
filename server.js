@@ -1656,16 +1656,32 @@ io.on('connection', (socket) => {
     startTutorial(room);
   });
 
-  socket.on('solo', () => {
+  // Бой на одном устройстве: игрок сам собирает отряды обеим командам.
+  // Наград нет, поэтому доступны все юниты магазина; особые — только свои.
+  socket.on('solo', (d) => {
     const info = socketsInfo.get(socket.id);
     if (!info) return;
     if (rooms.size >= MAX_ROOMS) return socket.emit('errorMsg', 'Сервер переполнен, попробуйте позже');
     if (roomSpam()) return socket.emit('errorMsg', 'Слишком много комнат, подождите немного');
+    const picked = {};
+    if (d && typeof d === 'object' && (d.blue || d.red)) {
+      const p = info.playerId ? A.peek(info.playerId) : null;
+      const allowed = R.SHOP_UNITS.concat(p ? R.SPECIAL_UNITS.filter((t) => p.unlocked.includes(t)) : []);
+      for (const s of SIDES) {
+        const sq = Array.isArray(d[s]) ? d[s].slice(0, R.SQUAD_MAX + 1).map(String) : null;
+        const err = sq ? R.squadError(sq, allowed) : 'Нет отряда';
+        if (err) return socket.emit('errorMsg', `${SIDE_NAME[s]}: ${err}`);
+        picked[s] = sq;
+      }
+    }
     if (info.code) leaveRoom(socket);
     const room = createRoom(true);
     info.code = room.code;
     socket.join('r:' + room.code);
-    for (const s of SIDES) room.slots[s] = seatFor(info, socket, true);
+    for (const s of SIDES) {
+      room.slots[s] = seatFor(info, socket, true);
+      if (picked[s]) room.slots[s].squad = picked[s];
+    }
     startGame(room, true);
   });
 

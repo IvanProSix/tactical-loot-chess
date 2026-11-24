@@ -312,6 +312,7 @@
     if (kind === 'vsai') renderVsAI();
     if (kind === 'campaign') renderCampaign();
     if (kind === 'codex') renderCodex();
+    if (kind === 'hotseat') { hs = null; renderHotseat(); }
   }
   function closeModal() {
     modalKind = null;
@@ -721,6 +722,71 @@
       <div class="ai-levels">${lv.map(([k, n, d, c]) => `<button class="ai-card" data-ai="${k}" style="border-color:${c}"><b style="color:${c}">${n}</b><span>${d}</span></button>`).join('')}</div>`;
     for (const b of $('modalBody').querySelectorAll('[data-ai]')) b.onclick = () => { Sound.unlock(); closeModal(); socket.emit('vsAI', { level: b.dataset.ai }); };
   }
+  // ---- Бой на одном устройстве: игрок собирает отряды обеим командам
+  const HS_KEY = 'tlc_hotseat';
+  let hs = null;
+  function hsAllowed() { return R.SHOP_UNITS.concat(profile ? R.SPECIAL_UNITS.filter((t) => profile.unlocked.includes(t)) : []); }
+  function hsRandom() {
+    const pool = R.BASIC_UNITS.concat(hsAllowed());
+    for (let tries = 0; tries < 200; tries++) {
+      const sq = [];
+      for (let i = 0; i < 40 && sq.length < R.SQUAD_MAX; i++) {
+        const t = pool[Math.floor(Math.random() * pool.length)];
+        if (!R.squadError(sq.concat(t), hsAllowed())) sq.push(t);
+      }
+      if (sq.length >= 3) return sq;
+    }
+    return R.DEFAULT_SQUAD.slice();
+  }
+  function renderHotseat() {
+    if (!hs) {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(HS_KEY) || 'null'); } catch (e) { /* нет хранилища */ }
+      const mine = profile ? profile.squad.slice() : R.DEFAULT_SQUAD.slice();
+      hs = { side: 'blue', blue: (saved && saved.blue) || mine, red: (saved && saved.red) || mine.slice() };
+      // юниты, которых больше нет (например, особый забрали), выкидываем
+      for (const k of ['blue', 'red']) if (R.squadError(hs[k], hsAllowed())) hs[k] = R.squadError(mine, hsAllowed()) ? R.DEFAULT_SQUAD.slice() : mine.slice();
+    }
+    const side = hs.side, sq = hs[side];
+    const errs = { blue: R.squadError(hs.blue, hsAllowed()), red: R.squadError(hs.red, hsAllowed()) };
+    const cost = R.squadCost(sq);
+    const tab = (k, n, c) => `<button class="hs-tab${side === k ? ' on' : ''}" data-hs-side="${k}" style="--c:${c}">${n}<small>${R.squadCost(hs[k])}/${R.SQUAD_BUDGET} оч.${errs[k] ? ' ⚠' : ''}</small></button>`;
+    const members = ['commander'].concat(sq).map((t, i) => `<div class="sq-member">
+        <span data-sprite="${t}" data-side="${side}" data-size="48"></span><div class="sq-name">${R.UNIT_TYPES[t].name}</div>
+        <div class="sq-cost">${i ? R.UNIT_TYPES[t].cost + ' оч.' : 'всегда'}</div>
+        ${i ? `<button class="sq-del" data-hs-del="${i - 1}" title="Убрать">✕</button>` : ''}</div>`).join('');
+    const empties = Array.from({ length: R.SQUAD_MAX - sq.length }, () => '<div class="sq-member empty">пусто</div>').join('');
+    const pool = R.BASIC_UNITS.concat(hsAllowed()).map((t) => {
+      const T = R.UNIT_TYPES[t];
+      const can = !R.squadError(sq.concat(t), hsAllowed());
+      const role = R.ROLES[T.role] || {};
+      return `<button class="sq-pick${T.special ? ' special' : ''}" data-hs-add="${t}" ${can ? '' : 'disabled'} title="${esc(T.desc)}">
+        <span data-sprite="${t}" data-side="${side}" data-size="40"></span><span class="sq-pname">${T.name}<br><small style="color:${role.color || '#999'}">${role.icon || ''} ${role.name || ''}</small></span><span class="cost-tag">${T.cost}</span></button>`;
+    }).join('');
+    const pct = Math.min(100, (cost / R.SQUAD_BUDGET) * 100);
+    $('modalBody').innerHTML = `<h2 class="modal-title">⚔ БОЙ НА ОДНОМ УСТРОЙСТВЕ</h2>
+      <div class="econ-dim" style="margin-bottom:10px">Соберите отряды обеим командам и играйте вдвоём за одним экраном, передавая ход. Здесь доступны все юниты магазина${profile && R.SPECIAL_UNITS.some((t) => profile.unlocked.includes(t)) ? ' и ваши особые' : ''}. Монеты и награды за этот бой не начисляются.</div>
+      <div class="hs-tabs">${tab('blue', '🔵 Синие', '#3b82f6')}${tab('red', '🔴 Красные', '#ef4444')}</div>
+      <div class="budget"><span>Очки отряда ${side === 'blue' ? 'Синих' : 'Красных'}: <b>${cost}</b> / ${R.SQUAD_BUDGET}</span><div class="budget-bar"><div style="width:${pct}%"></div></div></div>
+      <div class="sq-members">${members}${empties}</div>
+      <div class="btn-row hs-tools"><button id="hsRand" class="btn small">🎲 Случайный</button><button id="hsCopy" class="btn small">⇄ Как у ${side === 'blue' ? 'Красных' : 'Синих'}</button>${profile ? '<button id="hsMine" class="btn small">⚔ Мой отряд</button>' : ''}<button id="hsClear" class="btn small">Очистить</button></div>
+      <h3>// БОЙЦЫ (нажмите, чтобы добавить ${side === 'blue' ? 'Синим' : 'Красным'})</h3>
+      <div class="sq-pool">${pool}</div>
+      <div class="auth-err">${errs.blue ? 'Синие: ' + esc(errs.blue) : errs.red ? 'Красные: ' + esc(errs.red) : ''}</div>
+      <div class="btn-row"><button id="hsGo" class="btn primary" ${errs.blue || errs.red ? 'disabled' : ''}>▶ В бой</button></div>`;
+    mountSprites($('modalBody'));
+    const save = () => { try { localStorage.setItem(HS_KEY, JSON.stringify({ blue: hs.blue, red: hs.red })); } catch (e) { /* нет хранилища */ } };
+    const upd = () => { save(); renderHotseat(); };
+    for (const b of $('modalBody').querySelectorAll('[data-hs-side]')) b.onclick = () => { hs.side = b.dataset.hsSide; Sound.select(); renderHotseat(); };
+    for (const b of $('modalBody').querySelectorAll('[data-hs-add]')) b.onclick = () => { sq.push(b.dataset.hsAdd); Sound.select(); upd(); };
+    for (const b of $('modalBody').querySelectorAll('[data-hs-del]')) b.onclick = () => { sq.splice(Number(b.dataset.hsDel), 1); Sound.unready(); upd(); };
+    $('hsRand').onclick = () => { hs[side] = hsRandom(); Sound.select(); upd(); };
+    $('hsCopy').onclick = () => { hs[side] = hs[side === 'blue' ? 'red' : 'blue'].slice(); Sound.select(); upd(); };
+    if ($('hsMine')) $('hsMine').onclick = () => { hs[side] = profile.squad.slice(); Sound.select(); upd(); };
+    $('hsClear').onclick = () => { hs[side] = []; Sound.unready(); upd(); };
+    $('hsGo').onclick = () => { Sound.unlock(); save(); const d = { blue: hs.blue.slice(), red: hs.red.slice() }; closeModal(); socket.emit('solo', d); };
+  }
+
   function renderCampaign() {
     const done = campaignDone();
     const cards = R.CAMPAIGN.map((L, i) => {
@@ -791,6 +857,7 @@
     modes: `<ul class="codex-list">
       <li><b>▶ Комната</b> — бой с другом: создай комнату и отправь ссылку или код. Монеты за победу (+100, серия даёт бонус), за поражение −15%.</li>
       <li><b>🤖 Против ИИ</b> — три уровня сложности, без монет.</li>
+      <li><b>👥 Бой на одном устройстве</b> — соберите отряды обеим командам (доступны все юниты магазина и ваши особые) и играйте вдвоём за одним экраном. Без монет.</li>
       <li><b>🗺 Кампания</b> — 10 уровней и секретный 11-й. За первую победу на уровне — монеты (с аккаунтом).</li>
       <li><b>🎓 Обучение</b> — короткий урок с Клодом, можно перепройти.</li>
       <li><b>Аккаунт</b>: 🛒 магазин (открыть юнитов), ⚔ отряд (до 5 бойцов на 12 очков, одинаковых — не больше 2), ⛏ рудник (монеты каждый час, до 8 часов), 🎁 ежедневная награда (7 дней подряд — новый юнит), 🔑 смена пароля.</li></ul>`,
@@ -1532,7 +1599,7 @@
       dot.className = 'dot ' + (p && p.connected ? 'on' : 'off');
       const nm = document.createElement('span');
       nm.className = s === 'blue' ? 'pb' : 'pr';
-      nm.textContent = (p ? p.name : '—') + (view.solo && s === 'red' ? ' (тот же ПК)' : '');
+      nm.textContent = view.solo ? (s === 'blue' ? 'Игрок 1 · Синие' : 'Игрок 2 · Красные') : (p ? p.name : '—');
       row.append(dot, nm);
       pb.appendChild(row);
     }
@@ -1855,7 +1922,7 @@
   $('btnHideOver').onclick = () => { overHidden = true; $('overlay').classList.add('hidden'); renderHUD(); toast('Вернуть итоги — кнопка «🏆 Итоги» вверху или Esc'); };
   $('btnShowOver').onclick = () => { overHidden = false; renderOverlay(); renderHUD(); };
   $('btnReady').onclick = () => { Sound.unlock(); socket.emit('ready'); };
-  $('btnSolo').onclick = () => { Sound.unlock(); socket.emit('solo'); };
+  $('btnSolo').onclick = () => { Sound.unlock(); openModal('hotseat'); };
   $('btnCreate').onclick = () => { Sound.unlock(); socket.emit('createRoom'); };
   $('btnJoin').onclick = () => joinByCode($('codeInput').value);
   $('codeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinByCode(e.target.value); });
