@@ -213,11 +213,17 @@
   const coinFmt = (n) => `${Math.floor(n).toLocaleString('ru-RU')} 💰`;
   const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  let rouletteAuto = false, rouletteSpinning = false;
   function setProfile(p) {
     profile = p;
     profileAt = Date.now();
     if (p) { myName = p.name; }
     renderAccount();
+    // рулетка новичка: показываем сама один раз за загрузку (сервер даёт её только новым аккаунтам и только 1 раз)
+    if (p && p.roulette && !rouletteAuto) {
+      rouletteAuto = true;
+      setTimeout(() => { if (profile && profile.roulette && screenNow === 'menu' && (!modalKind || modalKind === 'auth')) openModal('roulette'); }, 450);
+    }
     if (modalKind === 'shop') renderShop();
     if (modalKind === 'campaign') renderCampaign();
     if (modalKind === 'squad' && !draftSquad) renderSquad();
@@ -244,8 +250,10 @@
     const st = profile.stats;
     bar.innerHTML = `<div class="acc-row"><span class="acc-name">👤 ${esc(profile.name)}</span><span id="coinBox" class="coins">${coinFmt(profile.coins)}</span>
         <span class="acc-stats">🏆 ${st.wins} · ✖ ${st.losses}${st.streak > 1 ? ` · 🔥 ${st.streak}` : ''}</span></div>
+"${profile.roulette ? '<button id="btnRoulette" class="btn daily-btn rl-open">Рулетка новичка — бесплатный боец!</button>' : ''}
       <div class="acc-btns"><button id="btnShop" class="btn small primary">Магазин</button><button id="btnSquad" class="btn small primary">Отряд</button>${profile.admin ? '<button id="btnAdmin" class="btn small danger">Админ</button>' : ''}<button id="btnChangePass" class="btn small">Пароль</button><button id="btnLogout" class="btn small">Выйти</button></div>`;
     $('btnShop').onclick = () => openModal('shop');
+    if ($('btnRoulette')) $('btnRoulette').onclick = () => openModal('roulette');
     if ($('btnAdmin')) $('btnAdmin').onclick = () => openModal('admin');
     $('btnChangePass').onclick = openChangePassword;
     $('btnSquad').onclick = () => openModal('squad');
@@ -315,8 +323,10 @@
     if (kind === 'codex') renderCodex();
     if (kind === 'changelog') renderChangelog();
     if (kind === 'hotseat') { hs = null; renderHotseat(); }
+    if (kind === 'roulette') renderRoulette();
   }
   function closeModal() {
+    if (rouletteSpinning) return; // юнит уже выдан — дождёмся остановки ленты
     modalKind = null;
     draftSquad = null;
     $('modal').classList.add('hidden');
@@ -410,6 +420,90 @@
     for (const el of root.querySelectorAll('[data-sprite]')) {
       el.replaceWith(spriteCanvas(el.dataset.sprite, el.dataset.side || 'blue', Number(el.dataset.size) || 48));
     }
+  }
+
+  // ---- рулетка новичка: лента бойцов крутится и останавливается на юните, которого выбрал сервер
+  const RL_STEP = 96, RL_N = 48, RL_WIN = 40; // ширина ячейки с отступом, длина ленты, индекс выигрышной ячейки
+  function rlPick(pool) {
+    const w = pool.map((t) => (R.RARITIES[R.unitRarity(t)] || R.RARITIES[0]).weight);
+    let x = Math.random() * w.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < pool.length; i++) { x -= w[i]; if (x < 0) return pool[i]; }
+    return pool[pool.length - 1];
+  }
+  function rlCell(t) {
+    return `<div class="rl-cell"${rarityStyle(t)}><span data-sprite="${t}" data-side="blue" data-size="56"></span><span class="rl-name">${esc(R.UNIT_TYPES[t].name)}</span></div>`;
+  }
+  function renderRoulette() {
+    if (!profile || !profile.roulette) { closeModal(); return; }
+    const pool = R.SHOP_UNITS.filter((t) => !profile.unlocked.includes(t));
+    const strip = Array.from({ length: RL_N }, () => rlPick(pool));
+    const odds = R.RARITIES.map((r, i) => {
+      const n = pool.filter((t) => R.unitRarity(t) === i).length;
+      return n ? `<span style="color:${r.color}">${r.m}: ${n}</span>` : '';
+    }).filter(Boolean).join(' · ');
+    $('modalBody').innerHTML = `<h2 class="modal-title">Рулетка новичка</h2>
+      <p class="econ-dim rl-text">Подарок за регистрацию: прокрутите рулетку и заберите случайного бойца из магазина насовсем. Крутится только один раз. Чем реже боец, тем меньше шанс.</p>
+      <div class="rl-window"><div class="rl-marker"></div><div id="rlStrip" class="rl-strip">${strip.map(rlCell).join('')}</div></div>
+      <div class="rl-odds">${odds}</div>
+      <div id="rlResult" class="rl-result hidden"></div>
+      <div class="btn-row"><button id="rlGo" class="btn primary big">Крутить!</button></div>`;
+    mountSprites($('modalBody'));
+    $('rlGo').onclick = () => spinRoulette(strip);
+  }
+  function spinRoulette(strip) {
+    const go = $('rlGo');
+    go.disabled = true;
+    Sound.unlock();
+    socket.emit('spinRoulette', null, (r) => {
+      if (r.error) { go.disabled = false; return toast(r.error, 'err'); }
+      if (!r.unit) { toast(`Все бойцы уже открыты — вместо юнита +${r.coins} 💰`); setProfile(r.profile); closeModal(); return; }
+      // выигрышная ячейка — юнит с сервера
+      const el = $('rlStrip');
+      strip[RL_WIN] = r.unit;
+      const cell = el.children[RL_WIN];
+      cell.outerHTML = rlCell(r.unit);
+      mountSprites(el.children[RL_WIN]);
+      const win = el.parentElement.clientWidth;
+      const jitter = (Math.random() - 0.5) * (RL_STEP - 30);
+      const target = -(RL_WIN * RL_STEP + RL_STEP / 2 - win / 2 + jitter);
+      rouletteSpinning = true;
+      $('modalClose').classList.add('hidden');
+      el.style.transition = 'transform 5.2s cubic-bezier(.12,.72,.18,1)';
+      el.style.transform = `translateX(${target}px)`;
+      // щелчок на каждой проезжающей ячейке
+      let last = 0, done = false;
+      const tick = () => {
+        if (done) return;
+        const x = new DOMMatrixReadOnly(getComputedStyle(el).transform).m41;
+        const i = Math.floor((-x + win / 2) / RL_STEP);
+        if (i !== last) { last = i; Sound.hover(); }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+      const finish = () => {
+        if (done) return;
+        done = true;
+        rouletteSpinning = false;
+        $('modalClose').classList.remove('hidden');
+        const t = r.unit, rar = rarityOf(t), T = R.UNIT_TYPES[t];
+        el.children[RL_WIN].classList.add('rl-win');
+        Sound.legendary(R.unitRarity(t) >= 3);
+        const res = $('rlResult');
+        res.innerHTML = `<span data-sprite="${t}" data-side="blue" data-size="80"></span>
+          <div><div class="rl-got">Выпал${rar ? ' ' + rar.m.toLowerCase() : ''} боец!</div>
+          <div class="shop-name">${esc(T.name)} ${rarityBadge(t)} ${roleBadge(t)}</div>
+          <div class="shop-stats">${unitStatsLine(t)} · стоил ${T.price} 💰</div>
+          <div class="shop-desc">${esc(T.desc || '')}</div></div>`;
+        res.classList.remove('hidden');
+        mountSprites(res);
+        $('rlGo').outerHTML = '<button id="rlSquad" class="btn primary big">В отряд</button><button id="rlOk" class="btn big">Отлично</button>';
+        $('rlOk').onclick = closeModal;
+        $('rlSquad').onclick = () => openModal('squad');
+        setProfile(r.profile);
+      };
+      el.addEventListener('transitionend', finish, { once: true });
+      setTimeout(finish, 6000); // на случай, если transitionend не придёт (вкладка в фоне)
+    });
   }
 
   // ---- админка: выдача монет и юнитов, сброс таймеров (права только у ников из ADMIN_NAMES на сервере)

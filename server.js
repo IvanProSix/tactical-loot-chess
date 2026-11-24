@@ -1541,6 +1541,7 @@ io.on('connection', (socket) => {
   socket.on('collectMine', econ((p) => A.collectMine(p)));
   socket.on('upgradeMine', econ((p) => A.upgradeMine(p)));
   socket.on('claimDaily', econ((p) => A.claimDaily(p)));
+  socket.on('spinRoulette', econ((p) => A.spinRoulette(p)));
   socket.on('buyUnit', econ((p, type) => A.buyUnit(p, String(type))));
   socket.on('setSquad', econ((p, squad) => {
     const r = A.setSquad(p, squad);

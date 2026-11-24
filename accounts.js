@@ -176,6 +176,7 @@ function normalize(p) {
   p.farm = p.farm || { day: null, vs: {} };
   p.campaign = Math.max(0, Math.min(R.CAMPAIGN.length, Math.floor(p.campaign || 0))); // пройдено уровней кампании
   p.sessions = Array.isArray(p.sessions) ? p.sessions : [];
+  p.roulette = p.roulette === true; // рулетка новичка: есть только у аккаунтов, созданных после её появления
 }
 
 // Админы: список ников только из переменной окружения ADMIN_NAMES (через запятую)
@@ -217,7 +218,7 @@ async function register(rawName, pass) {
     coins: ECON.START_COINS, unlocked: [], squad: R.DEFAULT_SQUAD.slice(),
     mine: { level: 1, last: Date.now() }, daily: { streak: 0, last: null },
     stats: { wins: 0, losses: 0, streak: 0, earned: 0 }, farm: { day: null, vs: {} },
-    sessions: [], created: Date.now(),
+    sessions: [], created: Date.now(), roulette: true,
   };
   try { await store.insert(p); } catch (e) {
     if (e.message === 'name_taken') return { error: 'Такой ник уже занят' };
@@ -329,6 +330,18 @@ function claimDaily(p) {
   p.coins += coins;
   save(p);
   return { day: d.day, coins, unit };
+}
+
+// Рулетка новичка: один раз на аккаунт, случайный закрытый юнит магазина (шанс — по редкости)
+function spinRoulette(p) {
+  if (!p.roulette) return { error: 'Рулетка уже прокручена' };
+  const locked = R.SHOP_UNITS.filter((t) => !p.unlocked.includes(t));
+  p.roulette = false;
+  let unit = null, coins = 0;
+  if (locked.length) { unit = pickByRarity(locked); p.unlocked.push(unit); } else { coins = ECON.DAILY_FALLBACK; p.coins += coins; }
+  save(p);
+  console.log(`[acc] рулетка: ${p.name} → ${unit || coins + ' монет'}`);
+  return { unit, coins, pool: locked };
 }
 
 function buyUnit(p, type) {
@@ -452,7 +465,7 @@ function campaignWin(p, level) {
 function profileView(p) {
   return {
     name: p.name, admin: isAdmin(p), coins: p.coins, campaign: p.campaign || 0, unlocked: p.unlocked.slice(), squad: p.squad.slice(),
-    stats: Object.assign({}, p.stats), mine: mineInfo(p), daily: dailyInfo(p),
+    stats: Object.assign({}, p.stats), mine: mineInfo(p), daily: dailyInfo(p), roulette: !!p.roulette,
   };
 }
 
@@ -468,5 +481,5 @@ module.exports = {
     for (const n of ADMINS) if (!(await loadByName(n))) console.warn(`[admin] ⚠ ник «${n}» из ADMIN_NAMES не зарегистрирован`);
     if (ADMINS.size) console.log(`[admin] админов в ADMIN_NAMES: ${ADMINS.size}`);
   }, flushAll, peek: (id) => cache.get(id) || null, register, login, resume, logout, loadById,
-  profileView, adminAction, changePassword, campaignWin, collectMine, upgradeMine, claimDaily, buyUnit, setSquad, matchResult,
+  profileView, adminAction, changePassword, campaignWin, collectMine, upgradeMine, claimDaily, spinRoulette, buyUnit, setSquad, matchResult,
 };

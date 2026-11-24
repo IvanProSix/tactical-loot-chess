@@ -703,3 +703,26 @@ h3 { margin: 0 0 8px; font-family: var(--pix); font-size: 19px; font-weight: 400
 .account-bar, .tutor-invite { background-color: rgba(14,18,26,.55) !important; }
 .tutor-invite { background-color: rgba(58,44,28,.75) !important; }
 body { line-height: 1.25; }
+
+/* ---------- рулетка новичка ---------- */
+.rl-open { animation: rlPulse 1.2s steps(2) infinite; }
+@keyframes rlPulse { 50% { --b: #cf9431; } }
+.rl-text { margin: 0 0 12px; line-height: 1.4; }
+.rl-window { position: relative; height: 118px; overflow: hidden; background: var(--well); border: 3px solid var(--edge); box-shadow: inset 0 4px 0 rgba(0,0,0,.4); }
+.rl-window::before, .rl-window::after { content: ''; position: absolute; top: 0; bottom: 0; width: 60px; z-index: 2; pointer-events: none; }
+.rl-window::before { left: 0; background: linear-gradient(90deg, var(--well), transparent); }
+.rl-window::after { right: 0; background: linear-gradient(-90deg, var(--well), transparent); }
+.rl-strip { position: absolute; top: 8px; left: 0; display: flex; gap: 6px; will-change: transform; }
+.rl-cell { flex: none; width: 90px; height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: var(--panel); border: 2px solid var(--edge); border-bottom: 6px solid var(--rc, var(--line2)); box-shadow: inset 0 2px 0 var(--hi); }
+.rl-cell canvas { image-rendering: pixelated; }
+.rl-name { font-size: 13px; line-height: 1; max-width: 84px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rl-cell.rl-win { background: color-mix(in srgb, var(--rc, #fff) 28%, var(--panel)); outline: 3px solid var(--yellow); outline-offset: -3px; }
+.rl-marker { position: absolute; left: 50%; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: var(--yellow); z-index: 3; box-shadow: 0 0 0 2px var(--edge); }
+.rl-marker::before, .rl-marker::after { content: ''; position: absolute; left: -7px; border: 9px solid transparent; }
+.rl-marker::before { top: -2px; border-top-color: var(--yellow); }
+.rl-marker::after { bottom: -2px; border-bottom-color: var(--yellow); }
+.rl-odds { margin: 8px 0 14px; font-size: 14px; text-align: center; }
+.rl-result { display: flex; gap: 14px; align-items: center; margin: 0 0 14px; padding: 10px; background: var(--well); border: 2px solid var(--edge); animation: enterUp .3s steps(4) both; }
+.rl-result canvas { image-rendering: pixelated; flex: none; animation: bob 1s steps(2) infinite; }
+.rl-got { color: var(--yellow); font-size: 20px; margin-bottom: 4px; }
