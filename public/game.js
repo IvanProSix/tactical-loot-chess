@@ -9,7 +9,8 @@
   const TEAM_COL = { blue: '#60a5fa', red: '#f87171' };
 
   Sprites.init();
-  const socket = io();
+  const socket = io({ reconnectionDelay: 300, reconnectionDelayMax: 3000 });
+  if (location.hostname === 'localhost') window.__sock = socket; // только для отладки сети локально
   MenuBG.init($('menuBg'));
   if (window.innerWidth < 600) { const rd = document.querySelector('.rules'); if (rd) rd.removeAttribute('open'); }
 
@@ -148,6 +149,8 @@
 
   socket.on('connect', () => {
     $('connState').classList.add('hidden');
+    pingWait = 0;
+    if ($('netPing').textContent === 'переподключение…') $('netPing').textContent = '';
     socket.emit('hello', { token, name: myName, code: roomCode, session });
   });
   socket.on('disconnect', () => $('connState').classList.remove('hidden'));
@@ -197,12 +200,51 @@
     if (v) pendingTimer = setTimeout(() => { pending = false; renderHUD(); }, 3000);
     renderHUD();
   }
+  // Отправка хода с подтверждением: если ответа нет 2.5 с, соединение «подвисло» —
+  // переподключаемся и после возвращения в партию отправляем ход ещё раз (сервер отклонит дубль).
+  let retryAction = null;
   function sendAction(a) {
     if (!canInput()) return;
-    socket.emit('action', a);
+    const sent = Date.now();
+    let acked = false;
+    socket.emit('action', a, () => { acked = true; netRtt(Date.now() - sent); });
+    setTimeout(() => {
+      if (acked || !socket.connected) return;
+      retryAction = Object.assign({}, a, { retry: true });
+      netKick('ход не подтвердился');
+    }, 2500);
     mode = 'normal';
     setPending(true);
   }
+
+  // ---- сеть: пинг и быстрое переподключение при «зависшем» соединении
+  let pingWait = 0, pingShown = null;
+  function netRtt(ms) {
+    pingShown = ms;
+    const el = $('netPing');
+    el.textContent = `пинг ${ms} мс`;
+    el.className = 'net-ping ' + (ms < 150 ? 'ok' : ms < 400 ? 'mid' : 'bad');
+  }
+  function netKick(why) {
+    console.warn('[net] переподключение:', why);
+    $('netPing').textContent = 'переподключение…';
+    $('netPing').className = 'net-ping bad';
+    try { socket.io.engine.close(); } catch (e) { /* ignore */ }
+  }
+  setInterval(() => {
+    if (!socket.connected) { pingWait = 0; return; }
+    if (pingWait && Date.now() - pingWait > 2500) { pingWait = 0; netKick('нет ответа на пинг'); return; }
+    if (pingWait) return;
+    const t0 = pingWait = Date.now();
+    socket.emit('netping', () => { if (pingWait === t0) pingWait = 0; netRtt(Date.now() - t0); });
+  }, 1000);
+  // после возвращения в партию — повторить неподтверждённый ход
+  socket.on('state', () => {
+    if (!retryAction) return;
+    const a = retryAction;
+    retryAction = null;
+    setTimeout(() => socket.emit('action', a, () => {}), 50);
+  });
 
   // ------------------------------------------------------------ аккаунт, экономика, магазин, отряд
   let session = store.get(localStorage, 'tlc_session');

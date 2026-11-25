@@ -34,7 +34,12 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (req, res) => res.json({ ok: true }));
 const server = http.createServer(app);
-const io = new Server(server, { pingInterval: 10000, pingTimeout: 10000, maxHttpBufferSize: 16 * 1024 });
+// Частые пинги — «подвисшее» соединение (бывает у игроков из России к зарубежным серверам) обнаруживается за секунды;
+// сжатие уменьшает трафик состояния партии.
+const io = new Server(server, {
+  pingInterval: 5000, pingTimeout: 5000, maxHttpBufferSize: 16 * 1024,
+  perMessageDeflate: { threshold: 1024 }, httpCompression: { threshold: 1024 },
+});
 
 // ---------------------------------------------------------------- Ограничения (анти-спам / анти-перебор)
 // IP клиента (для лимитов). Кому доверять — зависит от того, кто стоит перед игрой:
@@ -1686,17 +1691,24 @@ io.on('connection', (socket) => {
     startGame(room, true);
   });
 
-  socket.on('action', (a) => {
+  // подтверждение (ack) нужно клиенту, чтобы понять, что ход дошёл, и не ждать вслепую
+  socket.on('action', (a, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const quiet = !!(a && a.retry); // повтор после переподключения: ошибку («уже ходил») не показываем
+    const fail = (m) => { done({ error: m }); if (!quiet) socket.emit('errorMsg', m); };
     const room = cur();
-    if (!room || room.phase !== 'game' || !room.game || !a || typeof a !== 'object') return;
+    if (!room || room.phase !== 'game' || !room.game || !a || typeof a !== 'object') return done({ error: 'Нет партии' });
     const g = room.game;
     const viewer = viewerOf(socket, room);
-    if (!viewer) return socket.emit('errorMsg', 'Вы наблюдатель');
-    if (viewer !== 'both' && viewer !== g.turn) return socket.emit('errorMsg', 'Сейчас не ваш ход');
+    if (!viewer) return fail('Вы наблюдатель');
+    if (viewer !== 'both' && viewer !== g.turn) return fail('Сейчас не ваш ход');
+    delete a.retry;
     const { err, events } = performAction(g, g.turn, a);
-    if (err) return socket.emit('errorMsg', err);
+    if (err) return fail(err);
+    done({ ok: true });
     broadcastState(room, events);
   });
+  socket.on('netping', (cb) => { if (typeof cb === 'function') cb(); }); // замер пинга клиентом
 
   socket.on('surrender', () => {
     const room = cur();
@@ -1737,7 +1749,8 @@ io.on('connection', (socket) => {
     emitLobby(room);
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', (reason) => {
+    if (reason !== 'client namespace disconnect') console.log(`[net] отключение: ${reason} (${ip})`);
     const room = cur();
     socketsInfo.delete(socket.id);
     if (!room) return;
