@@ -208,18 +208,26 @@
     const sent = Date.now();
     let acked = false;
     socket.emit('action', a, () => { acked = true; netRtt(Date.now() - sent); });
-    setTimeout(() => {
+    const check = () => {
       if (acked || !socket.connected) return;
+      if (!netStalled()) { setTimeout(check, 1000); return; } // медленно, но данные идут — ждём
       retryAction = Object.assign({}, a, { retry: true });
       netKick('ход не подтвердился');
-    }, 2500);
+    };
+    setTimeout(check, netLimit());
     mode = 'normal';
     setPending(true);
   }
 
-  // ---- сеть: пинг и быстрое переподключение при «зависшем» соединении
-  let pingWait = 0, pingShown = null;
+  // ---- сеть: пинг и быстрое переподключение при «зависшем» соединении.
+  // Порог подстраивается под пинг: медленное, но живое соединение (VPN, 1–2 с) не рвём —
+  // переподключаемся, только если от сервера давно не приходило вообще ничего.
+  let pingWait = 0, pingShown = null, rttAvg = 300, lastRx = Date.now();
+  const netLimit = () => Math.max(4000, Math.min(12000, rttAvg * 3 + 2000));
+  const netStalled = () => Date.now() - lastRx > netLimit();
+  socket.io.on('open', () => { lastRx = Date.now(); socket.io.engine.on('packet', () => { lastRx = Date.now(); }); });
   function netRtt(ms) {
+    rttAvg = rttAvg * 0.7 + ms * 0.3;
     pingShown = ms;
     const el = $('netPing');
     el.textContent = `пинг ${ms} мс`;
@@ -233,11 +241,11 @@
   }
   setInterval(() => {
     if (!socket.connected) { pingWait = 0; return; }
-    if (pingWait && Date.now() - pingWait > 2500) { pingWait = 0; netKick('нет ответа на пинг'); return; }
+    if (pingWait && Date.now() - pingWait > netLimit() && netStalled()) { pingWait = 0; netKick('нет ответа на пинг'); return; }
     if (pingWait) return;
     const t0 = pingWait = Date.now();
     socket.emit('netping', () => { if (pingWait === t0) pingWait = 0; netRtt(Date.now() - t0); });
-  }, 1000);
+  }, 1500);
   // после возвращения в партию — повторить неподтверждённый ход
   socket.on('state', () => {
     if (!retryAction) return;
