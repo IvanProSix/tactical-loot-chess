@@ -324,6 +324,7 @@
     if (kind === 'changelog') renderChangelog();
     if (kind === 'hotseat') { hs = null; renderHotseat(); }
     if (kind === 'roulette') renderRoulette();
+    if (kind === 'settings') renderSettings();
   }
   function closeModal() {
     if (rouletteSpinning) return; // юнит уже выдан — дождёмся остановки ленты
@@ -420,6 +421,28 @@
     for (const el of root.querySelectorAll('[data-sprite]')) {
       el.replaceWith(spriteCanvas(el.dataset.sprite, el.dataset.side || 'blue', Number(el.dataset.size) || 48));
     }
+  }
+
+  // ---- настройки: громкость музыки и эффектов (хранится в браузере)
+  function renderSettings() {
+    const v = Sound.getVolumes();
+    const row = (k, name, hint) => `<label class="set-row"><span class="set-name">${name}</span>
+      <input type="range" min="0" max="100" step="5" value="${Math.round(v[k] * 100)}" data-vol="${k}">
+      <span class="set-val" id="setVal_${k}">${v[k] > 0 ? Math.round(v[k] * 100) + '%' : 'выкл'}</span></label><div class="set-hint">${hint}</div>`;
+    $('modalBody').innerHTML = `<h2 class="modal-title">Настройки</h2>
+      ${row('music', 'Музыка', 'Тема меню и боевая тема. На нуле музыка выключена.')}
+      ${row('sfx', 'Эффекты', 'Выстрелы, шаги, интерфейс.')}
+      ${Sound.isMuted() ? '<p class="set-hint" style="color:var(--yellow)">Сейчас весь звук выключен кнопкой 🔇 в углу.</p>' : ''}
+      <div class="btn-row"><button id="setDone" class="btn primary">Готово</button></div>`;
+    for (const r of $('modalBody').querySelectorAll('[data-vol]')) {
+      r.oninput = () => {
+        const k = r.dataset.vol, x = r.value / 100;
+        Sound.setVolume(k, x);
+        $('setVal_' + k).textContent = x > 0 ? r.value + '%' : 'выкл';
+      };
+      if (r.dataset.vol === 'sfx') r.onchange = () => Sound.select(); // пример громкости эффектов
+    }
+    $('setDone').onclick = closeModal;
   }
 
   // ---- рулетка новичка: лента бойцов крутится и останавливается на юните, которого выбрал сервер
@@ -1505,7 +1528,7 @@
     const el = $(scr);
     el.classList.remove('screen-in'); void el.offsetWidth; el.classList.add('screen-in');
     if (scr === 'game') {
-      MenuBG.stop(); Sound.music(state && state.phase === 'over' ? null : 'battle'); resize();
+      MenuBG.stop(); Sound.music(null); resize(); // боевая тема начнётся после отсчёта (renderHUD)
     } else {
       MenuBG.start(); Sound.music('menu');
     }
@@ -1691,7 +1714,8 @@
     tl.textContent = txt;
     tl.className = 'turn-label ' + side;
     Sound.setIntensity(view.round >= 10); // затянувшийся бой — музыка напряжённее
-    if (state.phase !== 'over' && screenNow === 'game') Sound.music('battle'); // в т.ч. после реванша
+    // боевая тема — только после отсчёта «3-2-1» (и снова после реванша)
+    if (state.phase !== 'over' && screenNow === 'game') Sound.music(countdownActive ? null : 'battle');
     $('roundLabel').textContent = `Раунд ${view.round}` + (state.ai ? ` · ${state.ai.campaign ? `кампания, ур. ${state.ai.campaign}` : `ИИ: ${R.AI_LEVELS[state.ai.level] || ''}`}` : view.you === 'both' ? ' · тест на 1 ПК' : view.you ? ` · вы за ${SIDE_RU[view.you]}` : ' · наблюдатель');
     renderLootInfo();
 
@@ -2075,10 +2099,8 @@
     if (b && !b.disabled && b.id !== 'btnReady' && b.id !== 'btnCopy') Sound.click();
   });
   const muteBtn = $('btnMute');
-  const syncMute = () => { muteBtn.textContent = Sound.isMuted() ? '🔇' : '🔊'; syncMusic(); };
-  const musBtn = $('btnMusic');
-  function syncMusic() { musBtn.classList.toggle('off', !Sound.isMusicOn()); musBtn.title = Sound.isMusicOn() ? 'Музыка: вкл' : 'Музыка: выкл'; }
-  musBtn.onclick = () => { Sound.toggleMusic(); syncMusic(); };
+  const syncMute = () => { muteBtn.textContent = Sound.isMuted() ? '🔇' : '🔊'; if (modalKind === 'settings') renderSettings(); };
+  $('btnSettings').onclick = () => { Sound.unlock(); openModal('settings'); };
   muteBtn.onclick = () => { Sound.toggleMute(); syncMute(); };
   syncMute();
 

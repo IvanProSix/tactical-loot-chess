@@ -5,6 +5,10 @@ const Sound = (() => {
   let muted = false;
   try { muted = localStorage.getItem('tlc_muted') === '1'; } catch (e) { /* ignore */ }
   const VOL = 0.5;
+  // громкости из настроек: музыка и эффекты, 0..1
+  const rd = (k, d) => { try { const v = parseFloat(localStorage.getItem(k)); return isFinite(v) ? Math.max(0, Math.min(1, v)) : d; } catch (e) { return d; } };
+  let musVol = rd('tlc_vol_music', 0.7), sfxVol = rd('tlc_vol_sfx', 1);
+  let sfxBus = null;
 
   function ensure() {
     if (!ac) {
@@ -15,6 +19,7 @@ const Sound = (() => {
       master.gain.value = muted ? 0 : VOL;
       const comp = ac.createDynamicsCompressor();
       master.connect(comp);
+      sfxBus = ac.createGain(); sfxBus.gain.value = sfxVol; sfxBus.connect(master);
       comp.connect(ac.destination);
       const len = ac.sampleRate;
       noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
@@ -58,24 +63,33 @@ const Sound = (() => {
       leadFrom: 1,
       style: 'calm',
     },
-    // Бой: «Тактика» — ре минор, 132 удара. Часть A — 8 тактов, часть B — 8 тактов, по кругу.
+    // Бой: «Осада» — ре минор с фригийским ми-бемолем, 108 ударов, тревожный пульс баса и редкая мелодия.
+    // Первые такты без мелодии — напряжение нарастает. 16 тактов (~36 с) по кругу.
     battle: {
-      bpm: 132, vol: 0.5,
-      chords: ['D4 F4 A4', 'Bb3 D4 F4', 'C4 E4 G4', 'A3 C4 E4', 'D4 F4 A4', 'Bb3 D4 F4', 'G3 Bb3 D4', 'A3 C#4 E4',
-        'Bb3 D4 F4', 'C4 E4 G4', 'D4 F4 A4', 'D4 F4 A4', 'G3 Bb3 D4', 'A3 C#4 E4', 'D4 F4 A4', 'A3 C#4 E4'].map(chord),
-      bass: ['D2', 'Bb1', 'C2', 'A1', 'D2', 'Bb1', 'G1', 'A1', 'Bb1', 'C2', 'D2', 'D2', 'G1', 'A1', 'D2', 'A1'].map(midi),
+      bpm: 108, vol: 0.5,
+      chords: ['D3 F3 A3', 'D3 F3 A3', 'Eb3 G3 Bb3', 'D3 F3 A3', 'Bb2 D3 F3', 'G2 Bb2 D3', 'A2 C#3 E3', 'A2 C#3 E3',
+        'D3 F3 A3', 'Eb3 G3 Bb3', 'D3 F3 A3', 'C3 Eb3 G3', 'Bb2 D3 F3', 'A2 C#3 E3', 'D3 F3 A3', 'A2 C#3 E3'].map(chord),
+      bass: ['D2', 'D2', 'Eb2', 'D2', 'Bb1', 'G1', 'A1', 'A1', 'D2', 'Eb2', 'D2', 'C2', 'Bb1', 'A1', 'D2', 'A1'].map(midi),
       lead: [
-        'D5 - - . D5 . F5 - A5 - - - G5 - F5 -', 'E5 - D5 - - - - - . . F5 - D5 - Bb4 -',
-        'C5 - - . C5 . E5 - G5 - - - A5 - G5 -', 'E5 - - - - - - - . . C5 - D5 - E5 -',
-        'F5 - - . F5 . A5 - D6 - - - C6 - A5 -', 'Bb5 - - - A5 - F5 - D5 - - - F5 - - -',
-        'G5 - - - F5 - E5 - D5 - - - Bb4 - D5 -', 'C#5 - - - - - - - E5 - - - A4 - - -',
-        'D5 - - - - - F5 - - - Bb5 - - - A5 -', 'G5 - - - - - E5 - - - C5 - - - E5 -',
-        'F5 - - - - - E5 - D5 - - - A4 - - -', 'D5 - F5 - A5 - D6 - - - - - . . . .',
-        'Bb5 - - - A5 - G5 - - - D5 - G5 - - -', 'A5 - - - G5 - F5 - E5 - - - C#5 - - -',
-        'D5 - - - E5 - F5 - G5 - A5 - - - F5 -', 'E5 - - - - - - - A5 - - - . . . .',
+        '. . . . . . . . . . . . . . . .',
+        '. . . . . . . . . . . . . . . .',
+        '. . . . . . . . . . . . . . . .',
+        '. . . . . . . . A4 - - - Bb4 - A4 -',
+        'D5 - - - - - - - - - - - F5 - D5 -',
+        'D5 - - - - - Bb4 - G4 - - - - - - -',
+        'E4 - - - - - - - G4 - - - F4 - E4 -',
+        'C#5 - - - - - - - - - - - . . . .',
+        'D5 - - - - - - - F5 - - - E5 - D5 -',
+        'Eb5 - - - - - - - - - - - D5 - Bb4 -',
+        'A4 - - - - - - - - - - - F4 - A4 -',
+        'G4 - - - - - Eb5 - - - - - D5 - C5 -',
+        'D5 - - - - - - - Bb4 - - - F5 - - -',
+        'E5 - - - - - C#5 - - - - - A4 - - -',
+        'D5 - - - E5 - F5 - - - - - E5 - D5 -',
+        'C#5 - - - - - - - - - - - . . . .',
       ].map(parseBar),
       leadFrom: 0,
-      style: 'drive',
+      style: 'dark',
     },
   };
 
@@ -108,6 +122,13 @@ const Sound = (() => {
   function hit(t, kind, vol) {
     const g = ac.createGain();
     g.connect(cur.gain);
+    if (kind === 'tom' || kind === 'tomlo') {
+      const o = ac.createOscillator(), f0 = kind === 'tom' ? 130 : 95;
+      o.type = 'sine'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + 0.22);
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+      o.connect(g); o.start(t); o.stop(t + 0.28);
+      return;
+    }
     if (kind === 'kick') {
       const o = ac.createOscillator();
       o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
@@ -143,26 +164,36 @@ const Sound = (() => {
       if (step % 2 === 0) { const arp = [0, 1, 2, 1, 0, 2, 1, 2][step / 2]; voice('square', hz(ch[arp] + 12), t, sp * 1.6, 0.011, { lp: 2200 }); }
       if (step % 4 === 2) hit(t, 'hat', 0.018);
     } else {
-      // бас — восьмые с октавными скачками
-      const bp = { 0: 0, 2: 0, 4: 12, 6: 0, 8: 0, 10: 0, 12: 12, 14: 7 };
-      if (bp[step] != null) voice('square', hz(root + bp[step]), t, sp * 1.7, 0.05, { lp: 700, release: 0.05 });
-      if (bp[step] != null) voice('triangle', hz(root + bp[step]), t, sp * 1.7, 0.07, { release: 0.05 });
-      // барабаны
-      const partB = b >= 8;
-      if (step === 0 || step === 6 || step === 8 || (partB && step === 11)) hit(t, 'kick', 0.32);
-      if (step === 4 || step === 12) hit(t, 'snare', 0.13);
-      if (step === 15 && b % 4 === 3) hit(t, 'snare', 0.08);
-      if (step % 2 === 0 || intensity) hit(t, step === 14 ? 'ohat' : 'hat', step % 2 ? 0.02 : 0.035);
-      // аккорд-«стабы» на сильных долях и арпеджио во второй части
-      if (step === 0 || step === 10) for (const n of ch) voice('sawtooth', hz(n), t, sp * 1.5, 0.012, { lp: 1600 });
-      if (partB || intensity) voice('square', hz(ch[step % 3] + 12), t, sp * 0.9, 0.009, { lp: 2600 });
+      const sp16 = sp * 16;
+      // тёмный пэд: медленно нарастает на весь такт
+      if (step === 0) for (const n of ch) {
+        voice('sawtooth', hz(n), t, sp16 + 0.3, 0.012, { attack: 0.6, release: 0.5, lp: 650 });
+        voice('triangle', hz(n), t, sp16 + 0.3, 0.02, { attack: 0.4, release: 0.5 });
+      }
+      // тревожный пульс баса: ровные восьмые на тонике, акцент на 1 и 3
+      if (step % 2 === 0) {
+        const acc = step === 0 || step === 8 ? 1 : 0.6;
+        voice('triangle', hz(root), t, sp * 1.6, 0.09 * acc, { release: 0.06 });
+        voice('square', hz(root), t, sp * 1.6, 0.035 * acc, { lp: 380, release: 0.06 });
+      }
+      // барабаны вполсилы: бочка на 1 (и перед 3), малый — только на 3, тихие хэты; в конце фразы — томы
+      if (step === 0 || step === 10 || (intensity && step === 8)) hit(t, 'kick', 0.3);
+      if (step === 8) hit(t, 'snare', 0.09);
+      if (step % 4 === 2 || (intensity && step % 2 === 1)) hit(t, 'hat', 0.016);
+      if (b % 4 === 3 && (step === 12 || step === 14)) hit(t, step === 12 ? 'tom' : 'tomlo', 0.18);
+      // в напряжённой фазе — низкое остинато шестнадцатыми
+      if (intensity) voice('square', hz(ch[[0, 1, 2, 1][step % 4]] + 12), t, sp * 0.8, 0.008, { lp: 1100 });
     }
     // мелодия
     if (loop >= tr.leadFrom) for (const nt of tr.lead[b]) {
       if (nt.step !== step) continue;
       const dur = nt.len * sp;
-      voice('square', hz(nt.n), t, dur * 0.95, tr.style === 'calm' ? 0.028 : 0.04, { lp: tr.style === 'calm' ? 2400 : 3400, vib: dur > 0.3, sustain: 0.7, release: 0.12 });
-      if (intensity && tr.style !== 'calm') voice('triangle', hz(nt.n - 12), t, dur * 0.95, 0.04, { sustain: 0.8 });
+      if (tr.style === 'calm') voice('square', hz(nt.n), t, dur * 0.95, 0.028, { lp: 2400, vib: dur > 0.3, sustain: 0.7, release: 0.12 });
+      else {
+        voice('sawtooth', hz(nt.n), t, dur * 0.95, 0.03, { lp: 1500, vib: dur > 0.3, attack: 0.05, sustain: 0.75, release: 0.25 });
+        voice('square', hz(nt.n - 12), t, dur * 0.95, 0.012, { lp: 900, attack: 0.05, release: 0.25 });
+        if (intensity) voice('triangle', hz(nt.n + 12), t, dur * 0.95, 0.018, { attack: 0.05, sustain: 0.8 });
+      }
     }
   }
 
@@ -190,11 +221,11 @@ const Sound = (() => {
   // включить нужный трек (с плавной сменой) или тишину
   function applyMusic() {
     if (!ac) return; // запустится после первого клика (политика автозапуска звука)
-    const name = musOn && !muted ? wantTrack : null;
+    const name = musOn && !muted && musVol > 0 ? wantTrack : null;
     if (cur && cur.name === name) return;
     if (cur) { fadeOut(cur); cur = null; }
     if (!name) return;
-    if (!musBus) { musBus = ac.createGain(); musBus.gain.value = 1; musBus.connect(master); }
+    if (!musBus) { musBus = ac.createGain(); musBus.gain.value = musVol; musBus.connect(master); }
     const g = ac.createGain();
     g.gain.setValueAtTime(0.0001, ac.currentTime);
     g.gain.exponentialRampToValueAtTime(TRACKS[name].vol, ac.currentTime + 1.2);
@@ -222,7 +253,7 @@ const Sound = (() => {
     if (o.f2) osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.f2), t + o.dur);
     const g = a.createGain();
     env(g, t, o.vol == null ? 0.2 : o.vol, o.attack || 0.004, o.dur);
-    osc.connect(g); g.connect(master);
+    osc.connect(g); g.connect(sfxBus);
     osc.start(t); osc.stop(t + o.dur + 0.03);
   }
 
@@ -240,7 +271,7 @@ const Sound = (() => {
     flt.Q.value = o.q || 0.8;
     const g = a.createGain();
     env(g, t, o.vol == null ? 0.2 : o.vol, o.attack || 0.003, o.dur);
-    src.connect(flt); flt.connect(g); g.connect(master);
+    src.connect(flt); flt.connect(g); g.connect(sfxBus);
     src.start(t); src.stop(t + o.dur + 0.05);
   }
 
@@ -270,6 +301,19 @@ const Sound = (() => {
       return musOn;
     },
     isMusicOn() { return musOn; },
+    getVolumes() { return { music: musVol, sfx: sfxVol }; },
+    setVolume(kind, v) {
+      v = Math.max(0, Math.min(1, +v || 0));
+      if (kind === 'music') { musVol = v; if (musBus) musBus.gain.setTargetAtTime(v, ac.currentTime, 0.05); }
+      else { sfxVol = v; if (sfxBus) sfxBus.gain.setTargetAtTime(v, ac.currentTime, 0.05); }
+      try { localStorage.setItem(kind === 'music' ? 'tlc_vol_music' : 'tlc_vol_sfx', String(v)); } catch (e) { /* ignore */ }
+      if (kind === 'music') { // ползунок на нуле = музыка выключена
+        musOn = v > 0;
+        try { localStorage.setItem('tlc_music', musOn ? '1' : '0'); } catch (e) { /* ignore */ }
+        if (v > 0) ensure();
+        applyMusic();
+      }
+    },
     hover() {
       const n = performance.now();
       if (n - lastHover < 60) return;

@@ -726,7 +726,15 @@ body { line-height: 1.25; }
 .rl-result canvas { image-rendering: pixelated; flex: none; animation: bob 1s steps(2) infinite; }
 .rl-got { color: var(--yellow); font-size: 20px; margin-bottom: 4px; }
 /* кнопка музыки рядом со звуком */
-.music-btn { right: 54px; font-family: var(--pix); font-size: 22px; }
+.music-btn { right: 54px; font-size: 19px; }
 .music-btn.off { color: var(--dim); text-decoration: line-through; }
 .hud { padding-right: 104px; }
 @media (max-width: 600px) { .hud { padding-right: 100px; } }
+/* настройки */
+.set-row { display: grid; grid-template-columns: 110px 1fr 56px; gap: 12px; align-items: center; margin-top: 10px; font-size: 20px; }
+.set-val { text-align: right; color: var(--yellow); }
+.set-hint { color: var(--dim); font-size: 14px; margin: 4px 0 8px; }
+.set-row input[type=range] { -webkit-appearance: none; appearance: none; height: 14px; background: var(--well); border: 3px solid var(--edge); box-shadow: inset 0 2px 0 rgba(0,0,0,.4); cursor: pointer; }
+.set-row input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 26px; background: var(--yellow); border: 3px solid var(--edge); box-shadow: inset 0 -3px 0 rgba(0,0,0,.25); }
+.set-row input[type=range]::-moz-range-thumb { width: 14px; height: 22px; background: var(--yellow); border: 3px solid var(--edge); border-radius: 0; }
+@media (max-width: 600px) { .set-row { grid-template-columns: 80px 1fr 48px; font-size: 17px; } }
