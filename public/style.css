@@ -725,3 +725,8 @@ body { line-height: 1.25; }
 .rl-result { display: flex; gap: 14px; align-items: center; margin: 0 0 14px; padding: 10px; background: var(--well); border: 2px solid var(--edge); animation: enterUp .3s steps(4) both; }
 .rl-result canvas { image-rendering: pixelated; flex: none; animation: bob 1s steps(2) infinite; }
 .rl-got { color: var(--yellow); font-size: 20px; margin-bottom: 4px; }
+/* кнопка музыки рядом со звуком */
+.music-btn { right: 54px; font-family: var(--pix); font-size: 22px; }
+.music-btn.off { color: var(--dim); text-decoration: line-through; }
+.hud { padding-right: 104px; }
+@media (max-width: 600px) { .hud { padding-right: 100px; } }

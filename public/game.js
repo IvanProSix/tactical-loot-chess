@@ -1505,9 +1505,9 @@
     const el = $(scr);
     el.classList.remove('screen-in'); void el.offsetWidth; el.classList.add('screen-in');
     if (scr === 'game') {
-      MenuBG.stop(); Sound.ambientStop(); resize();
+      MenuBG.stop(); Sound.music(state && state.phase === 'over' ? null : 'battle'); resize();
     } else {
-      MenuBG.start(); Sound.ambientStart();
+      MenuBG.start(); Sound.music('menu');
     }
     clearInterval(roomListTimer);
     if (scr === 'menu') {
@@ -1690,6 +1690,8 @@
     else txt = `ХОД ${SIDE_GEN[side]}`;
     tl.textContent = txt;
     tl.className = 'turn-label ' + side;
+    Sound.setIntensity(view.round >= 10); // затянувшийся бой — музыка напряжённее
+    if (state.phase !== 'over' && screenNow === 'game') Sound.music('battle'); // в т.ч. после реванша
     $('roundLabel').textContent = `Раунд ${view.round}` + (state.ai ? ` · ${state.ai.campaign ? `кампания, ур. ${state.ai.campaign}` : `ИИ: ${R.AI_LEVELS[state.ai.level] || ''}`}` : view.you === 'both' ? ' · тест на 1 ПК' : view.you ? ` · вы за ${SIDE_RU[view.you]}` : ' · наблюдатель');
     renderLootInfo();
 
@@ -1938,6 +1940,7 @@
     if (overShownFor !== state.gameId) {
       overShownFor = state.gameId;
       overHidden = false;
+      Sound.music(null); // музыка боя затихает, звучит победный/проигрышный мотив
       if (view.you === 'both' || view.you === w || !view.you) Sound.victory(); else Sound.defeat();
       const c = cellCenter(3.5, 3.5);
       for (let i = 0; i < 4; i++) setTimeout(() => burst({ x: c.x + (Math.random() - 0.5) * C * 5, y: c.y + (Math.random() - 0.5) * C * 5 }, 30, ['#facc15', '#22d3ee', '#f472b6', '#4ade80', '#fff'], 3), i * 250);
@@ -2072,7 +2075,10 @@
     if (b && !b.disabled && b.id !== 'btnReady' && b.id !== 'btnCopy') Sound.click();
   });
   const muteBtn = $('btnMute');
-  const syncMute = () => { muteBtn.textContent = Sound.isMuted() ? '🔇' : '🔊'; };
+  const syncMute = () => { muteBtn.textContent = Sound.isMuted() ? '🔇' : '🔊'; syncMusic(); };
+  const musBtn = $('btnMusic');
+  function syncMusic() { musBtn.classList.toggle('off', !Sound.isMusicOn()); musBtn.title = Sound.isMusicOn() ? 'Музыка: вкл' : 'Музыка: выкл'; }
+  musBtn.onclick = () => { Sound.toggleMusic(); syncMusic(); };
   muteBtn.onclick = () => { Sound.toggleMute(); syncMute(); };
   syncMute();
 

@@ -25,42 +25,183 @@ const Sound = (() => {
     return ac;
   }
 
-  // ---- фоновая музыка меню: тихий синт-пад + арпеджио (Am – F – C – G), генерируется на лету
-  const PROG = [[220, 261.63, 329.63], [174.61, 220, 261.63], [130.81, 164.81, 196], [196, 246.94, 293.66]];
-  const BAR = 4;
-  const ARP = [0, 1, 2, 1, 0, 2, 1, 2];
-  let wantAmb = false, ambG = null, ambNext = 0, ambBarNo = 0, ambTimer = null;
-  function ambVoice(type, f, t, dur, vol, attack, flt) {
+  // ================= МУЗЫКА: маленький секвенсор и две оригинальные чиптюн-темы =================
+  // Ноты пишутся по 16 шагов (шестнадцатые) на такт: «A4» — нота, «-» — тянуть, «.» — пауза.
+  const NN = { C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11 };
+  const midi = (s) => { const m = /^([A-G][#b]?)(-?\d)$/.exec(s); return 12 * (+m[2] + 1) + NN[m[1]]; };
+  const hz = (n) => 440 * Math.pow(2, (n - 69) / 12);
+  const chord = (s) => s.split(' ').map(midi);
+  // мелодия такта -> [{step, len, n}]
+  function parseBar(str) {
+    const tk = str.trim().split(/\s+/), out = [];
+    for (let i = 0; i < tk.length; i++) {
+      if (tk[i] === '-' || tk[i] === '.') continue;
+      let len = 1;
+      while (tk[i + len] === '-') len++;
+      out.push({ step: i, len, n: midi(tk[i]) });
+    }
+    return out;
+  }
+
+  const TRACKS = {
+    // Меню: «Привал» — спокойно, ля минор. Первый круг — пэд и арпеджио, со второго вступает мелодия.
+    menu: {
+      bpm: 84, vol: 0.55,
+      chords: ['A3 C4 E4', 'F3 A3 C4', 'C4 E4 G4', 'G3 B3 D4', 'A3 C4 E4', 'F3 A3 C4', 'G3 B3 D4', 'E3 G#3 B3'].map(chord),
+      bass: ['A2', 'F2', 'C3', 'G2', 'A2', 'F2', 'G2', 'E2'].map(midi),
+      lead: [
+        'E5 - - - . . A4 - C5 - - - B4 - A4 -', 'C5 - - - - - - - A4 - - - . . . .',
+        'G4 - - - C5 - - - E5 - - - D5 - C5 -', 'D5 - - - - - - - B4 - - - . . . .',
+        'E5 - - - . . A5 - G5 - - - E5 - C5 -', 'F5 - - - E5 - C5 - A4 - - - . . . .',
+        'B4 - - - D5 - - - G5 - - - F5 - D5 -', 'E5 - - - - - - - G#4 - - - B4 - - -',
+      ].map(parseBar),
+      leadFrom: 1,
+      style: 'calm',
+    },
+    // Бой: «Тактика» — ре минор, 132 удара. Часть A — 8 тактов, часть B — 8 тактов, по кругу.
+    battle: {
+      bpm: 132, vol: 0.5,
+      chords: ['D4 F4 A4', 'Bb3 D4 F4', 'C4 E4 G4', 'A3 C4 E4', 'D4 F4 A4', 'Bb3 D4 F4', 'G3 Bb3 D4', 'A3 C#4 E4',
+        'Bb3 D4 F4', 'C4 E4 G4', 'D4 F4 A4', 'D4 F4 A4', 'G3 Bb3 D4', 'A3 C#4 E4', 'D4 F4 A4', 'A3 C#4 E4'].map(chord),
+      bass: ['D2', 'Bb1', 'C2', 'A1', 'D2', 'Bb1', 'G1', 'A1', 'Bb1', 'C2', 'D2', 'D2', 'G1', 'A1', 'D2', 'A1'].map(midi),
+      lead: [
+        'D5 - - . D5 . F5 - A5 - - - G5 - F5 -', 'E5 - D5 - - - - - . . F5 - D5 - Bb4 -',
+        'C5 - - . C5 . E5 - G5 - - - A5 - G5 -', 'E5 - - - - - - - . . C5 - D5 - E5 -',
+        'F5 - - . F5 . A5 - D6 - - - C6 - A5 -', 'Bb5 - - - A5 - F5 - D5 - - - F5 - - -',
+        'G5 - - - F5 - E5 - D5 - - - Bb4 - D5 -', 'C#5 - - - - - - - E5 - - - A4 - - -',
+        'D5 - - - - - F5 - - - Bb5 - - - A5 -', 'G5 - - - - - E5 - - - C5 - - - E5 -',
+        'F5 - - - - - E5 - D5 - - - A4 - - -', 'D5 - F5 - A5 - D6 - - - - - . . . .',
+        'Bb5 - - - A5 - G5 - - - D5 - G5 - - -', 'A5 - - - G5 - F5 - E5 - - - C#5 - - -',
+        'D5 - - - E5 - F5 - G5 - A5 - - - F5 -', 'E5 - - - - - - - A5 - - - . . . .',
+      ].map(parseBar),
+      leadFrom: 0,
+      style: 'drive',
+    },
+  };
+
+  let musOn = true;
+  try { musOn = localStorage.getItem('tlc_music') !== '0'; } catch (e) { /* ignore */ }
+  let musBus = null, musTimer = null, cur = null, wantTrack = null, intensity = 0;
+
+  function voice(type, f, t, dur, vol, o) {
+    o = o || {};
     const osc = ac.createOscillator();
     osc.type = type;
     osc.frequency.setValueAtTime(f, t);
+    if (o.detune) osc.detune.value = o.detune;
+    if (o.vib) { // лёгкое вибрато на длинных нотах
+      const l = ac.createOscillator(), lg = ac.createGain();
+      l.frequency.value = 5.5; lg.gain.value = f * 0.006;
+      l.connect(lg); lg.connect(osc.frequency); l.start(t + 0.15); l.stop(t + dur + 0.05);
+    }
     const g = ac.createGain();
+    const a = o.attack || 0.008, rel = Math.min(o.release || 0.08, dur);
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + attack);
-    g.gain.setValueAtTime(vol, t + Math.max(attack, dur - 0.9));
+    g.gain.exponentialRampToValueAtTime(vol, t + a);
+    g.gain.setValueAtTime(vol * (o.sustain != null ? o.sustain : 0.8), t + Math.max(a, dur - rel));
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(g); g.connect(flt || ambG);
+    let out = g;
+    if (o.lp) { const fl = ac.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = o.lp; g.connect(fl); out = fl; }
+    osc.connect(g); out.connect(cur.gain);
     osc.start(t); osc.stop(t + dur + 0.05);
   }
-  function ambBar(t) {
-    const chord = PROG[ambBarNo++ % PROG.length];
-    const flt = ac.createBiquadFilter();
-    flt.type = 'lowpass'; flt.frequency.value = 900; flt.Q.value = 0.5;
-    flt.connect(ambG);
-    for (const f of chord) {
-      ambVoice('triangle', f / 2, t, BAR + 0.8, 0.035, 1.2, flt);
-      ambVoice('sawtooth', f / 2 * 1.004, t, BAR + 0.8, 0.012, 1.4, flt);
+  function hit(t, kind, vol) {
+    const g = ac.createGain();
+    g.connect(cur.gain);
+    if (kind === 'kick') {
+      const o = ac.createOscillator();
+      o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.connect(g); o.start(t); o.stop(t + 0.2);
+      return;
     }
-    ambVoice('sine', chord[0] / 4, t, BAR, 0.08, 0.05);
-    ARP.forEach((n, i) => {
-      if (Math.random() < 0.2) return;
-      ambVoice('square', chord[n] * 2, t + i * (BAR / ARP.length), 0.22, 0.012, 0.01);
-    });
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuf;
+    const fl = ac.createBiquadFilter();
+    const dur = kind === 'snare' ? 0.13 : kind === 'ohat' ? 0.12 : 0.035;
+    fl.type = kind === 'snare' ? 'bandpass' : 'highpass';
+    fl.frequency.value = kind === 'snare' ? 1900 : 7000;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(fl); fl.connect(g); src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.02);
+    if (kind === 'snare') { // «тело» малого барабана
+      const o = ac.createOscillator(), og = ac.createGain();
+      o.type = 'triangle'; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(140, t + 0.08);
+      og.gain.setValueAtTime(vol * 0.5, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+      o.connect(og); og.connect(cur.gain); o.start(t); o.stop(t + 0.1);
+    }
   }
-  function ambTick() {
-    if (!wantAmb || !ac || !ambG || ac.state !== 'running' || muted) return;
-    if (ambNext < ac.currentTime) ambNext = ac.currentTime + 0.05;
-    if (ac.currentTime + 0.4 >= ambNext) { ambBar(ambNext); ambNext += BAR; }
+
+  // один шаг (шестнадцатая) трека
+  function playStep(tr, bar, step, t, loop) {
+    const sp = 60 / tr.bpm / 4, b = bar % tr.chords.length;
+    const ch = tr.chords[b], root = tr.bass[b];
+    if (tr.style === 'calm') {
+      if (step === 0) {
+        for (const n of ch) { voice('triangle', hz(n), t, sp * 16 + 0.6, 0.03, { attack: 0.9, release: 1.2, lp: 1100 }); voice('sawtooth', hz(n) * 1.003, t, sp * 16 + 0.6, 0.008, { attack: 1.1, release: 1.2, lp: 800 }); }
+      }
+      if (step === 0 || step === 8) voice('sine', hz(root), t, sp * 7, 0.11, { attack: 0.03, release: 0.4 });
+      if (step % 2 === 0) { const arp = [0, 1, 2, 1, 0, 2, 1, 2][step / 2]; voice('square', hz(ch[arp] + 12), t, sp * 1.6, 0.011, { lp: 2200 }); }
+      if (step % 4 === 2) hit(t, 'hat', 0.018);
+    } else {
+      // бас — восьмые с октавными скачками
+      const bp = { 0: 0, 2: 0, 4: 12, 6: 0, 8: 0, 10: 0, 12: 12, 14: 7 };
+      if (bp[step] != null) voice('square', hz(root + bp[step]), t, sp * 1.7, 0.05, { lp: 700, release: 0.05 });
+      if (bp[step] != null) voice('triangle', hz(root + bp[step]), t, sp * 1.7, 0.07, { release: 0.05 });
+      // барабаны
+      const partB = b >= 8;
+      if (step === 0 || step === 6 || step === 8 || (partB && step === 11)) hit(t, 'kick', 0.32);
+      if (step === 4 || step === 12) hit(t, 'snare', 0.13);
+      if (step === 15 && b % 4 === 3) hit(t, 'snare', 0.08);
+      if (step % 2 === 0 || intensity) hit(t, step === 14 ? 'ohat' : 'hat', step % 2 ? 0.02 : 0.035);
+      // аккорд-«стабы» на сильных долях и арпеджио во второй части
+      if (step === 0 || step === 10) for (const n of ch) voice('sawtooth', hz(n), t, sp * 1.5, 0.012, { lp: 1600 });
+      if (partB || intensity) voice('square', hz(ch[step % 3] + 12), t, sp * 0.9, 0.009, { lp: 2600 });
+    }
+    // мелодия
+    if (loop >= tr.leadFrom) for (const nt of tr.lead[b]) {
+      if (nt.step !== step) continue;
+      const dur = nt.len * sp;
+      voice('square', hz(nt.n), t, dur * 0.95, tr.style === 'calm' ? 0.028 : 0.04, { lp: tr.style === 'calm' ? 2400 : 3400, vib: dur > 0.3, sustain: 0.7, release: 0.12 });
+      if (intensity && tr.style !== 'calm') voice('triangle', hz(nt.n - 12), t, dur * 0.95, 0.04, { sustain: 0.8 });
+    }
+  }
+
+  function musTick() {
+    if (!ac || ac.state !== 'running' || !cur) return;
+    const tr = TRACKS[cur.name], sp = 60 / tr.bpm / 4, total = tr.chords.length * 16;
+    if (cur.next < ac.currentTime) cur.next = ac.currentTime + 0.05;
+    // в фоновой вкладке таймеры срабатывают раз в секунду — планируем с запасом, чтобы музыка не заикалась
+    const ahead = document.hidden ? 1.6 : 0.35;
+    while (cur.next < ac.currentTime + ahead) {
+      const s = cur.step % total;
+      playStep(tr, Math.floor(s / 16), s % 16, cur.next, Math.floor(cur.step / total));
+      cur.step++;
+      cur.next += sp;
+    }
+  }
+  function fadeOut(c) {
+    if (!c) return;
+    const t = ac.currentTime;
+    c.gain.gain.cancelScheduledValues(t);
+    c.gain.gain.setValueAtTime(Math.max(0.0001, c.gain.gain.value), t);
+    c.gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+    setTimeout(() => c.gain.disconnect(), 1200);
+  }
+  // включить нужный трек (с плавной сменой) или тишину
+  function applyMusic() {
+    if (!ac) return; // запустится после первого клика (политика автозапуска звука)
+    const name = musOn && !muted ? wantTrack : null;
+    if (cur && cur.name === name) return;
+    if (cur) { fadeOut(cur); cur = null; }
+    if (!name) return;
+    if (!musBus) { musBus = ac.createGain(); musBus.gain.value = 1; musBus.connect(master); }
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(TRACKS[name].vol, ac.currentTime + 1.2);
+    g.connect(musBus);
+    cur = { name, gain: g, step: 0, next: ac.currentTime + 0.1 };
+    if (!musTimer) musTimer = setInterval(musTick, 90);
+    musTick();
   }
   let lastHover = 0;
 
@@ -115,25 +256,20 @@ const Sound = (() => {
   };
 
   const api = {
-    unlock() { const a = ensure(); if (wantAmb && !ambTimer) api.ambientStart(); ambTick(); return a; },
-    ambientStart() {
-      wantAmb = true;
-      if (!ac) return; // запустится после первого касания/клика (политика автозапуска звука)
-      if (!ambG) { ambG = ac.createGain(); ambG.gain.value = 0.0001; ambG.connect(master); }
-      ambG.gain.cancelScheduledValues(ac.currentTime);
-      ambG.gain.setValueAtTime(Math.max(0.0001, ambG.gain.value), ac.currentTime);
-      ambG.gain.exponentialRampToValueAtTime(1, ac.currentTime + 1.5);
-      if (!ambTimer) ambTimer = setInterval(ambTick, 400);
-      ambTick();
+    unlock() { const a = ensure(); applyMusic(); musTick(); return a; },
+    // фоновая музыка: 'menu' | 'battle' | null
+    music(name) { wantTrack = name; if (name !== 'battle') intensity = 0; applyMusic(); },
+    setIntensity(v) { intensity = v ? 1 : 0; },
+    ambientStart() { api.music('menu'); },
+    ambientStop() { api.music(null); },
+    toggleMusic() {
+      musOn = !musOn;
+      try { localStorage.setItem('tlc_music', musOn ? '1' : '0'); } catch (e) { /* ignore */ }
+      if (musOn) ensure();
+      applyMusic();
+      return musOn;
     },
-    ambientStop() {
-      wantAmb = false;
-      if (!ac || !ambG) return;
-      ambG.gain.cancelScheduledValues(ac.currentTime);
-      ambG.gain.setValueAtTime(Math.max(0.0001, ambG.gain.value), ac.currentTime);
-      ambG.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.8);
-      ambNext = 0;
-    },
+    isMusicOn() { return musOn; },
     hover() {
       const n = performance.now();
       if (n - lastHover < 60) return;
@@ -326,6 +462,7 @@ const Sound = (() => {
       try { localStorage.setItem('tlc_muted', muted ? '1' : '0'); } catch (e) { /* ignore */ }
       if (master) master.gain.value = muted ? 0 : VOL;
       if (!muted) ensure();
+      applyMusic();
       return muted;
     },
     isMuted() { return muted; },
