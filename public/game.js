@@ -1012,7 +1012,7 @@
         <div class="lv-num">${n}</div>
         <div class="lv-body"><div class="lv-name">${esc(L.name)} <span class="cost-tag">${R.AI_LEVELS[L.ai]}</span></div>
           <div class="lv-desc">${esc(L.desc)}</div>
-          <div class="lv-enemy">${['commander'].concat(L.enemy).map((t) => `<span data-sprite="${t}" data-side="red" data-size="26"></span>`).join('')}</div>
+          <div class="lv-enemy">${['commander'].concat(L.enemy).map((t) => `<span data-sprite="${t}" data-side="red" data-size="26"${R.UNIT_TYPES[t].special && !ownsSpecial(t) ? ' data-sil="1"' : ''}></span>`).join('')}</div>
           <div class="lv-rew">Награда за первую победу: ${L.reward} 💰${profile ? '' : ' (с аккаунтом)'} · Командир врага: ${L.cmdHp} HP</div></div>
         ${st}</button>`;
     }).join('');
