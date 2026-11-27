@@ -180,8 +180,13 @@ function normalize(p) {
 }
 
 // Админы: список ников только из переменной окружения ADMIN_NAMES (через запятую)
-const ADMINS = new Set(String(process.env.ADMIN_NAMES || '').split(',').map((s) => s.replace(/\s+/g, ' ').trim().toLowerCase()).filter(Boolean));
-const isAdmin = (p) => !!p && ADMINS.has(p.nameLc);
+// Полные админы — ADMIN_NAMES; модераторы (младшие админы) — MOD_NAMES: всё, кроме сброса паролей,
+// и не могут менять аккаунты полных админов.
+const nameSet = (v) => new Set(String(v || '').split(',').map((s) => s.replace(/\s+/g, ' ').trim().toLowerCase()).filter(Boolean));
+const ADMINS = nameSet(process.env.ADMIN_NAMES);
+const MODS = nameSet(process.env.MOD_NAMES);
+const isFullAdmin = (p) => !!p && ADMINS.has(p.nameLc);
+const isAdmin = (p) => !!p && (ADMINS.has(p.nameLc) || MODS.has(p.nameLc));
 
 // ---------------------------------------------------------------- Аутентификация
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
@@ -209,7 +214,7 @@ async function register(rawName, pass) {
   if (typeof pass !== 'string' || pass.length < 6 || pass.length > 64) return { error: 'Пароль: от 6 до 64 символов' };
   const nameLc = name.toLowerCase();
   // ник из ADMIN_NAMES нельзя зарегистрировать: иначе его мог бы занять кто угодно и получить права
-  if (ADMINS.has(nameLc)) return { error: 'Этот ник зарезервирован' };
+  if (ADMINS.has(nameLc) || MODS.has(nameLc)) return { error: 'Этот ник зарезервирован' };
   if (await loadByName(nameLc)) return { error: 'Такой ник уже занят' };
   const salt = crypto.randomBytes(16).toString('hex');
   const p = {
@@ -391,6 +396,8 @@ async function adminAction(admin, d) {
   const name = cleanAccName((d && d.name) || admin.name);
   const t = await loadByName(name.toLowerCase());
   if (!t) return { error: `Игрок «${name}» не найден` };
+  const full = isFullAdmin(admin);
+  if (!full && d && d.op !== 'find' && isFullAdmin(t)) return { error: 'Модератор не может менять аккаунт админа' };
   let msg = 'найден';
   switch (d && d.op) {
     case 'find': break;
@@ -429,6 +436,7 @@ async function adminAction(admin, d) {
       break;
     }
     case 'resetPassword': {
+      if (!full) return { error: 'Сбрасывать пароли может только админ' };
       // временный пароль видит только админ; все сессии игрока завершаются
       const temp = tempPassword();
       const salt = crypto.randomBytes(16).toString('hex');
@@ -467,7 +475,7 @@ function campaignWin(p, level) {
 
 function profileView(p) {
   return {
-    name: p.name, admin: isAdmin(p), coins: p.coins, campaign: p.campaign || 0, unlocked: p.unlocked.slice(), squad: p.squad.slice(),
+    name: p.name, admin: isAdmin(p), adminFull: isFullAdmin(p), coins: p.coins, campaign: p.campaign || 0, unlocked: p.unlocked.slice(), squad: p.squad.slice(),
     stats: Object.assign({}, p.stats), mine: mineInfo(p), daily: dailyInfo(p), roulette: !!p.roulette,
   };
 }
@@ -482,7 +490,9 @@ module.exports = {
   ECON, init: async () => {
     await store.init();
     for (const n of ADMINS) if (!(await loadByName(n))) console.warn(`[admin] ⚠ ник «${n}» из ADMIN_NAMES не зарегистрирован`);
+    for (const n of MODS) if (!(await loadByName(n))) console.warn(`[admin] ⚠ ник «${n}» из MOD_NAMES не зарегистрирован`);
     if (ADMINS.size) console.log(`[admin] админов в ADMIN_NAMES: ${ADMINS.size}`);
+    if (MODS.size) console.log(`[admin] модераторов в MOD_NAMES: ${MODS.size}`);
   }, flushAll, peek: (id) => cache.get(id) || null, register, login, resume, logout, loadById,
   profileView, adminAction, changePassword, campaignWin, collectMine, upgradeMine, claimDaily, spinRoulette, buyUnit, setSquad, matchResult,
 };

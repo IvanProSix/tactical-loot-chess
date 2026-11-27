@@ -615,7 +615,7 @@
       <h3>Особые юниты</h3>
       ${R.SPECIAL_UNITS.map((u) => `<div class="btn-row admin-row"><button class="btn small primary" data-grant="${u}">${SPECIAL_ICON[u] || '★'} Выдать: ${R.UNIT_TYPES[u].name}</button><button class="btn small danger" data-revoke="${u}">Забрать</button></div>`).join('')}
       <h3>Доступ</h3>
-      <div class="btn-row admin-row"><button class="btn small danger" id="admReset">Сбросить пароль игроку</button></div>
+      ${profile.adminFull ? '<div class="btn-row admin-row"><button class="btn small danger" id="admReset">Сбросить пароль игроку</button></div>' : '<div class="econ-dim">Вы модератор: сброс паролей доступен только админу.</div>'}
       <div id="admTemp" class="admin-temp hidden"></div>
       <h3>Уровень рудника</h3>
       <div class="btn-row admin-row">${[1, 2, 3, 4, 5].map((l) => `<button class="btn small" data-mine="${l}">${l}</button>`).join('')}</div>
@@ -635,7 +635,7 @@
     $('admGive').onclick = () => run({ op: 'coins', amount: Number($('admAmount').value) });
     for (const b of $('modalBody').querySelectorAll('[data-coins]')) b.onclick = () => run({ op: 'coins', amount: Number(b.dataset.coins) });
     for (const b of $('modalBody').querySelectorAll('[data-op]')) b.onclick = () => run({ op: b.dataset.op });
-    $('admReset').onclick = () => {
+    if ($('admReset')) $('admReset').onclick = () => {
       const who = $('admName').value.trim() || profile.name;
       if (!confirm(`Сбросить пароль игроку «${who}»? Он выйдет из аккаунта на всех устройствах и сможет войти только с временным паролем.`)) return;
       socket.emit('admin', { op: 'resetPassword', name: who }, (r) => {
