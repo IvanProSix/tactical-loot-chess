@@ -743,3 +743,5 @@ body { line-height: 1.25; }
 .net-ping:empty { display: none; }
 .net-ping.ok { color: var(--green); } .net-ping.mid { color: var(--yellow); } .net-ping.bad { color: var(--red); }
 @media (max-width: 600px) { #game .net-ping { top: auto; bottom: 6px; } }
+.secret-unit { opacity: .85; }
+.secret-unit .shop-name { color: var(--dim); letter-spacing: 2px; }

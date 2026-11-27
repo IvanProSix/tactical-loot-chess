@@ -469,7 +469,14 @@
   }
   function mountSprites(root) {
     for (const el of root.querySelectorAll('[data-sprite]')) {
-      el.replaceWith(spriteCanvas(el.dataset.sprite, el.dataset.side || 'blue', Number(el.dataset.size) || 48));
+      const cv = spriteCanvas(el.dataset.sprite, el.dataset.side || 'blue', Number(el.dataset.size) || 48);
+      if (el.dataset.sil) { // засекреченный юнит — только тёмный силуэт
+        const c = cv.getContext('2d');
+        c.globalCompositeOperation = 'source-in';
+        c.fillStyle = '#323c52';
+        c.fillRect(0, 0, cv.width, cv.height);
+      }
+      el.replaceWith(cv);
     }
   }
 
@@ -1018,11 +1025,19 @@
 
   // ---- Справочник: всё об игре в одном месте
   let codexTab = 'basics';
+  // Особые (секретные) юниты в справочнике видны только тем, у кого они есть (и админу)
+  const ownsSpecial = (t) => !!profile && (profile.admin || profile.unlocked.includes(t));
   function codexUnits() {
     const order = ['commander'].concat(R.BASIC_UNITS.concat(R.SHOP_UNITS).sort(byRarity), R.SPECIAL_UNITS, ['zombie', 'turret', 'barrier']);
     const legend = `<div class="econ-dim" style="margin-bottom:8px">Редкость юнита: ${R.RARITIES.map((r) => `<b style="color:${r.color}">${r.m}</b>`).join(' · ')}. Чем реже — тем дороже в магазине; Мифические выдаёт только админ.</div>`;
     return legend + order.map((t) => {
       const T = R.UNIT_TYPES[t];
+      if (T.special && !ownsSpecial(t)) {
+        return `<div class="shop-item rar-frame secret-unit"${rarityStyle(t)}><span data-sprite="${t}" data-size="48" data-sil="1"></span>
+          <div class="shop-info"><div class="shop-name">??? ${rarityBadge(t)} <span class="cost-tag">засекречено</span></div>
+          <div class="shop-stats">❤ ? · 👣 ? · ⚔ ? · 🎯 ? · только от админа</div>
+          <div class="shop-desc">Секретный юнит. Его способности откроются, когда он появится в вашей коллекции.</div></div></div>`;
+      }
       const where = t === 'commander' ? 'в каждом отряде' : T.special ? 'только от админа' : T.noShop ? 'появляется в бою' : T.price ? `магазин: ${T.price} 💰` : 'доступен сразу';
       return `<div class="shop-item${rarityOf(t) ? ' rar-frame' : ''}"${rarityStyle(t)}><span data-sprite="${t}" data-size="48"></span>
         <div class="shop-info"><div class="shop-name">${T.name} ${rarityBadge(t)} ${roleBadge(t)} ${T.cost ? `<span class="cost-tag">${T.cost} оч.</span>` : ''}</div>
@@ -1068,7 +1083,9 @@
   };
   function renderCodex() {
     const tabs = [['basics', 'Основы'], ['units', 'Юниты'], ['items', 'Предметы'], ['mech', 'Механики'], ['modes', 'Режимы и аккаунт'], ['news', `Обновления v${GAME_VERSION}`]];
-    const body = codexTab === 'units' ? codexUnits() : codexTab === 'items' ? codexItems() : codexTab === 'news' ? `<div class="cl-list">${changelogHtml()}</div>` : CODEX_TEXT[codexTab];
+    let body = codexTab === 'units' ? codexUnits() : codexTab === 'items' ? codexItems() : codexTab === 'news' ? `<div class="cl-list">${changelogHtml()}</div>` : CODEX_TEXT[codexTab];
+    if (!ownsSpecial('icemage')) body = body.replace('(Ледяной маг)', '(секретный юнит)');
+    if (!ownsSpecial('elephant')) body = body.replace('таран Слоника', 'таран секретного юнита');
     $('modalBody').innerHTML = `<h2 class="modal-title">СПРАВОЧНИК</h2>
       <div class="codex-tabs">${tabs.map(([k, n]) => `<button class="btn small${k === codexTab ? ' primary' : ''}" data-tab="${k}">${n}</button>`).join('')}</div>
       <div class="codex-body ${codexTab === 'units' || codexTab === 'items' ? 'shop-list' : ''}">${body}</div>`;
